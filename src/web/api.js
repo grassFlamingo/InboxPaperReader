@@ -68,6 +68,48 @@ const api = {
 
   async stopBgSummary() {
     return fetch(`${API}/api/summary-bg-stop`, { method: 'POST' });
+  },
+
+  async getTechTerms(params = {}) {
+    const q = new URLSearchParams(params);
+    return fetch(`${API}/api/tech-terms?${q}`).then(r => r.json());
+  },
+
+  async getTechTermsStats() {
+    return fetch(`${API}/api/tech-terms/stats`).then(r => r.json());
+  },
+
+  async addTechTerm(data) {
+    return fetch(`${API}/api/tech-terms`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+  },
+
+  async updateTechTerm(id, data) {
+    return fetch(`${API}/api/tech-terms/${id}`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
+  },
+
+  async verifyTechTerm(id) {
+    return fetch(`${API}/api/tech-terms/verify/${id}`, { method: 'POST' }).then(r => r.json());
+  },
+
+  async deleteTechTerm(id) {
+    return fetch(`${API}/api/tech-terms/${id}`, { method: 'DELETE' });
+  },
+
+  async exportTechTerms() {
+    return fetch(`${API}/api/tech-terms/export`).then(r => r.json());
+  },
+
+  async importTechTerms(data) {
+    return fetch(`${API}/api/tech-terms/import`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    }).then(r => r.json());
   }
 };
 

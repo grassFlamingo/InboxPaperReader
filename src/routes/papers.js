@@ -3,6 +3,7 @@ const { fetchUrlText, detectSourceType } = require('../services/web');
 const { callLlm, cleanThinkTags } = require('../services/llm');
 const config = require('../../config');
 const emailSync = require('../services/email');
+const { buildGlossary } = require('./techterms');
 
 function setupPaperRoutes(app) {
   // GET /api/papers - List papers with filters
@@ -27,11 +28,11 @@ function setupPaperRoutes(app) {
   // POST /api/papers - Add paper
   app.post('/api/papers', (req, res) => {
     const d = req.body;
-    db.runQuery(`
+    const lastId = db.runQuery(`
       INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, category, priority, status, tags, notes, source_type)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [d.title || '', d.authors || '', d.abstract || '', d.source || '', d.source_url || '', d.arxiv_id || '', d.category || '其他', d.priority ?? 3, d.status || 'unread', d.tags || '', d.notes || '', d.source_type || 'paper']);
-    res.status(201).json({ id: db.lastInsertRowid(), message: 'added' });
+    res.status(201).json({ id: lastId, message: 'added' });
   });
 
   // PUT /api/papers/:id - Update paper
@@ -80,6 +81,10 @@ function setupPaperRoutes(app) {
     try { pageText = await fetchUrlText(url, 5000); } 
     catch (e) { return res.status(502).json({ error: `Failed to fetch URL: ${e.message}` }); }
 
+    if (!pageText || pageText.length < 50) {
+      return res.status(502).json({ error: 'Failed to fetch page content. Try using the abstract URL instead of PDF URL.' });
+    }
+
     const sourceTypeNames = { 'paper': '论文', 'wechat_article': '微信文章', 'twitter_thread': '推文', 'blog_post': '博客', 'video': '视频', 'other': '文章' };
     const systemPrompt = `你是一个信息提取助手，专门从${sourceTypeNames[sourceType] || '文章'}页面文本中提取关键信息。
 请从以下页面文本中提取信息，按 JSON 格式输出，字段说明：
@@ -93,7 +98,8 @@ IMPORTANT: Do NOT use <think/> tags. Reply directly with JSON only.`;
 
     let extracted;
     try {
-      const llmRaw = await callLlm(systemPrompt, `URL: ${url}\n\n页面内容：\n${pageText}`, 500);
+      const glossary = buildGlossary(pageText);
+      const llmRaw = await callLlm(systemPrompt, `URL: ${url}\n\n页面内容：\n${pageText}`, 500, glossary);
       const jsonMatch = llmRaw.match(/\{[\s\S]+?\}(?=\s*$|\s*\n)/) || llmRaw.match(/\{[\s\S]+\}/);
       if (!jsonMatch) return res.status(500).json({ error: 'LLM did not return valid JSON', raw: llmRaw.substring(0, 300) });
       extracted = JSON.parse(jsonMatch[0]);
@@ -111,13 +117,13 @@ IMPORTANT: Do NOT use <think/> tags. Reply directly with JSON only.`;
     const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/);
     if (arxivMatch) arxivId = arxivMatch[1];
 
-    db.runQuery(`
+    const lastId = db.runQuery(`
       INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, category, priority, status, tags, notes, source_type, stars)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [extracted.title || url, extracted.authors || '', extracted.abstract || '', source, url, arxivId, finalCategory, finalPriority, 'unread', finalTags, notes || '', sourceType, starsAi]);
 
     const abstract = extracted.abstract || '';
-    res.status(201).json({ id: db.lastInsertRowid(), title: extracted.title, authors: extracted.authors, source_type: sourceType, category: finalCategory, stars: starsAi, abstract_preview: abstract.length > 100 ? abstract.substring(0, 100) + '...' : abstract, message: 'imported' });
+    res.status(201).json({ id: lastId, title: extracted.title, authors: extracted.authors, source_type: sourceType, category: finalCategory, stars: starsAi, abstract_preview: abstract.length > 100 ? abstract.substring(0, 100) + '...' : abstract, message: 'imported' });
   });
 
   // POST /api/sync - Trigger email sync (runs in background)

@@ -41,11 +41,15 @@ function queryOne(sql, params = []) {
 function runQuery(sql, params = []) {
   db.run(sql, params);
   saveDb();
-  return db;
+  if (sql.trim().toUpperCase().startsWith('INSERT')) {
+    const result = db.exec('SELECT MAX(rowid) as id FROM papers');
+    return result[0]?.values[0][0] || 0;
+  }
+  return 0;
 }
 
 function lastInsertRowid() {
-  return db.exec('SELECT last_insert_rowid()')[0].values[0][0];
+  return 0;
 }
 
 async function initTables() {
@@ -83,12 +87,33 @@ function migrate() {
     { col: 'stars', def: 'INTEGER DEFAULT 0' },
     { col: 'user_rating', def: 'INTEGER DEFAULT 0' },
     { col: 'source_type', def: "TEXT DEFAULT 'paper'" },
+    { col: 'notes', def: "TEXT DEFAULT ''" },
   ];
   for (const { col, def } of migrations) {
     if (!cols.includes(col)) {
       db.run(`ALTER TABLE papers ADD COLUMN ${col} ${def}`);
     }
   }
+
+  const tableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='tech_terms'");
+  if (tableExists.length === 0 || tableExists[0].values.length === 0) {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tech_terms (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        term_en TEXT NOT NULL,
+        term_zh TEXT NOT NULL,
+        context TEXT DEFAULT '',
+        verified INTEGER DEFAULT 0,
+        use_count INTEGER DEFAULT 1,
+        source_paper_id INTEGER,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (source_paper_id) REFERENCES papers(id)
+      )
+    `);
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tech_terms_unique ON tech_terms(term_en, term_zh, context)`);
+  }
+
   saveDb();
 }
 

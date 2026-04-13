@@ -1,7 +1,7 @@
 const fetch = require('node-fetch');
 const config = require('../../config');
 
-async function callLlm(systemPrompt, userContent, maxTokens = 150) {
+async function callLlm(systemPrompt, userContent, maxTokens = 150, glossary = '') {
   let model = config.LLM.MODEL;
   
   if (!model) {
@@ -14,11 +14,14 @@ async function callLlm(systemPrompt, userContent, maxTokens = 150) {
     }
   }
 
+  const glossaryNote = glossary ? '\n\n以下是术语参考（可选使用）：\n' + glossary + '\n' : '';
+  const fullUserContent = userContent + glossaryNote;
+
   const payload = {
     model,
     messages: [
       { role: 'system', content: systemPrompt + '\n\nIMPORTANT: Do NOT use <think/> tags. Reply directly with the answer only.' },
-      { role: 'user', content: userContent }
+      { role: 'user', content: fullUserContent }
     ],
     max_tokens: maxTokens,
     temperature: 0.3,

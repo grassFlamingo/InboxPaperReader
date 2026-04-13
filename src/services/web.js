@@ -1,6 +1,23 @@
 const fetch = require('node-fetch');
 
 async function fetchUrlText(url, maxChars = 6000) {
+  try {
+    return await fetchUrlTextImpl(url, maxChars);
+  } catch (e) {
+    console.error('[fetchUrlText]', e.message);
+    return '';
+  }
+}
+
+async function fetchUrlTextImpl(url, maxChars = 6000) {
+  const urlLower = url.toLowerCase();
+  if (urlLower.includes('arxiv.org/pdf/')) {
+    const pdfMatch = url.match(/arxiv\.org\/pdf\/(\d{4}\.\d{4,5})/);
+    if (pdfMatch) {
+      url = `https://arxiv.org/abs/${pdfMatch[1]}`;
+    }
+  }
+
   const headers = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
     'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',

@@ -298,6 +298,26 @@
       margin: 6px 0
     }
 
+    .paper-notes {
+      font-size: .85rem;
+      color: #d0d0e0;
+      line-height: 1.6;
+      padding: 10px;
+      margin: 6px 0;
+      background: rgba(60, 40, 80, .2);
+      border-radius: 6px;
+      border-left: 3px solid var(--accent2)
+    }
+    .paper-notes h1, .paper-notes h2, .paper-notes h3 { margin: 8px 0 4px; color: var(--text) }
+    .paper-notes .math-block { text-align: center; margin: 8px 0; font-size: 1.1em }
+    .paper-notes .math-inline { font-family: monospace; color: var(--accent) }
+    .paper-notes code { background: rgba(80, 60, 120, .3); padding: 2px 5px; border-radius: 3px; font-size: .9em }
+    .paper-notes pre { background: rgba(80, 60, 120, .3); padding: 10px; border-radius: 6px; overflow-x: auto }
+    .paper-notes .notes-edit { width: 100%; min-height: 120px; background: #1a1a28; color: #d0d0e0; border: 1px solid var(--accent); border-radius: 6px; padding: 10px; font-family: monospace; font-size: .85rem; resize: vertical }
+    .paper-notes .notes-actions, .paper-notes .notes-view-actions { margin-top: 8px; display: flex; gap: 8px }
+    .paper-notes button { font-size: .75rem; padding: 4px 10px }
+    .paper-notes:empty { display: none }
+
     .paper-tags {
       display: flex;
       flex-wrap: wrap;
@@ -683,6 +703,7 @@
         style="border-color:#1da1f2;color:#1da1f2">🔗 从 URL 导入</button>
       <button class="btn" id="syncBtn" onclick="PaperApp.syncEmails()"
         style="border-color:var(--green);color:var(--green)">📬 同步邮箱</button>
+      <button class="btn" onclick="TechTermsApp.show()" style="border-color:#a78bfa;color:#a78bfa">📖 术语</button>
     </div>
 
     <div class="stats" id="stats"></div>
@@ -735,6 +756,62 @@
     </div>
 
     <div id="paperList"></div>
+
+    <!-- 术语管理面板 -->
+    <div id="techTermsPanel" style="display:none">
+      <div class="header">
+        <div>
+          <h1 class="cat-header" style="margin:0;border:none;padding:0">📖 技术术语字典</h1>
+          <p class="subtitle" id="techTermsSubtitle">加载中...</p>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="btn" onclick="TechTermsApp.exportJson()">⬇ 导出</button>
+          <button class="btn" onclick="document.getElementById('techTermsImportFile').click()">⬆ 导入</button>
+          <input type="file" id="techTermsImportFile" accept=".json" style="display:none" onchange="TechTermsApp.importJson(this)">
+          <button class="btn" onclick="TechTermsApp.hide()">返回论文</button>
+        </div>
+      </div>
+
+      <div class="stats" id="techTermsStats"></div>
+
+      <div class="toolbar">
+        <select id="techTermsFilter" onchange="TechTermsApp.render()">
+          <option value="">全部</option>
+          <option value="0">待审核</option>
+          <option value="1">已审核</option>
+          <option value="candidate">候选</option>
+        </select>
+        <select id="techTermsSort" onchange="TechTermsApp.render()" style="width:auto">
+          <option value="">默认（未审核优先）</option>
+          <option value="count">按使用次数</option>
+          <option value="name">按英文名</option>
+          <option value="zh">按中文名</option>
+          <option value="date">按最新</option>
+        </select>
+        <input type="text" id="techTermsSearch" placeholder="搜索术语..." oninput="TechTermsApp.render()">
+        <button class="btn btn-primary" onclick="TechTermsApp.openAddModal()">＋ 添加术语</button>
+      </div>
+
+      <div id="techTermsList"></div>
+
+      <!-- 术语模态框 -->
+      <div class="modal-overlay" id="techTermsModal">
+        <div class="modal">
+          <h2 id="techTermsModalTitle">添加术语</h2>
+          <input type="hidden" id="techTermsEditId">
+          <label>英文术语 *</label>
+          <input type="text" id="techTermsEn" placeholder="如 transformer">
+          <label>中文翻译 *</label>
+          <input type="text" id="techTermsZh" placeholder="如 Transformer/变换器">
+          <label>上下文（可选，用于区分不同翻译）</label>
+          <input type="text" id="techTermsContext" placeholder="如 视觉模型,推荐系统">
+          <div class="modal-actions">
+            <button class="btn" onclick="TechTermsApp.closeModal()">取消</button>
+            <button class="btn btn-primary" onclick="TechTermsApp.save()">保存</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- URL 导入模态框 -->
     <div class="modal-overlay" id="importUrlModal">
@@ -799,8 +876,10 @@
         <input type="number" id="fPriority" min="1" max="5" value="3">
         <label>标签（逗号分隔）</label>
         <input type="text" id="fTags" placeholder="tag1, tag2, tag3">
-        <label>摘要 / 笔记</label>
+        <label>摘要</label>
         <textarea id="fAbstract" placeholder="论文核心内容..."></textarea>
+        <label>笔记（支持 Markdown/LaTeX）</label>
+        <textarea id="fNotes" placeholder="笔记...$$E=mc^2$$"></textarea>
         <div class="modal-actions">
           <button class="btn" onclick="PaperApp.closeModal()">取消</button>
           <button class="btn btn-primary" onclick="PaperApp.savePaper()">保存</button>
@@ -808,6 +887,7 @@
       </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="src/web/api.js"></script>
     <script src="src/web/components.js"></script>
     <script src="src/web/app.js"></script>
@@ -822,6 +902,10 @@
         });
         document.getElementById('importUrlModal').addEventListener('click', e => {
           if (e.target === document.getElementById('importUrlModal')) PaperApp.closeImportUrlModal();
+        });
+
+        document.getElementById('techTermsModal').addEventListener('click', e => {
+          if (e.target === document.getElementById('techTermsModal')) TechTermsApp.closeModal();
         });
 
         PaperApp.init();

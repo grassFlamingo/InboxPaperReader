@@ -4,6 +4,14 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function renderMarkdown(text) {
+  if (!text) return '';
+  if (typeof marked !== 'undefined') {
+    return marked.parse(text);
+  }
+  return text;
+}
+
 function paperUrl(p) {
   if (p.arxiv_id) return `https://arxiv.org/pdf/${p.arxiv_id}`;
   return p.source_url || '#';
@@ -94,9 +102,12 @@ function renderCard(p, idx, options = {}) {
       </div>
       ${p.abstract ? `<div class="paper-abstract">${esc(p.abstract)}</div>` : ''}
       ${renderAiSummary(p)}
+      ${p.notes ? `<div class="paper-notes" id="notes-${p.id}">${this.renderMarkdown(p.notes)}</div>` : ''}
       ${(p.tags || p.ai_category) ? `<div class="paper-tags">${renderAiCatTag(p.ai_category)}${renderTags(p.tags)}</div>` : ''}
+      <div class="paper-notes" id="notes-${p.id}" style="display:none"></div>
       ${renderUserRating(p)}
       <div class="paper-actions">
+        <button class="btn" onclick="PaperApp.viewNotes(${p.id})">📝 笔记</button>
         <button class="btn btn-ai" id="aiBtn-${p.id}" onclick="PaperApp.aiSummarize(${p.id})">✨ AI 摘要</button>
         <button class="btn" onclick="PaperApp.cycleStatus(${p.id},'${status}')">${STATUS_LABELS[status]}</button>
         <button class="btn" onclick="PaperApp.openEditModal(${p.id})">编辑</button>
@@ -136,5 +147,6 @@ window.RenderUtils = {
   esc, paperUrl, renderStars, renderTags, renderAiCatTag,
   renderSourceBadge, renderUserRating, renderAiSummary, renderAiStars,
   renderCard, renderCategoryHeader, renderStats, renderCategorySelect, renderPaperList,
+  renderMarkdown,
   SOURCE_TYPE_ICONS, SOURCE_TYPE_NAMES, STATUS_ORDER, STATUS_NEXT, STATUS_LABELS
 };

@@ -1,3 +1,9 @@
+function esc(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
 const PaperApp = {
   papers: [],
   categories: [],
@@ -180,6 +186,7 @@ const PaperApp = {
     document.getElementById('fPriority').value = p.priority || 3;
     document.getElementById('fTags').value = p.tags || '';
     document.getElementById('fAbstract').value = p.abstract || '';
+    document.getElementById('fNotes').value = p.notes || '';
     document.getElementById('fSource').value = p.source || 'arXiv';
     document.getElementById('fSourceType').value = p.source_type || 'paper';
     document.getElementById('modal').classList.add('active');
@@ -202,6 +209,7 @@ const PaperApp = {
       priority: parseInt(document.getElementById('fPriority').value) || 3,
       tags: document.getElementById('fTags').value.trim(),
       abstract: document.getElementById('fAbstract').value.trim(),
+      notes: document.getElementById('fNotes').value.trim(),
       source_type: document.getElementById('fSourceType').value || 'paper',
     };
     const editId = document.getElementById('editId').value;
@@ -332,7 +340,216 @@ const PaperApp = {
   stopBgSummary() {
     PaperAPI.stopBgSummary();
     document.getElementById('bgSummaryBar').style.display = 'none';
+  },
+
+  async toggleNotes(id) {
+    const el = document.getElementById(`notes-${id}`);
+    if (!el) return;
+    if (el.style.display === 'none') {
+      this.viewNotes(id);
+    } else {
+      el.style.display = 'none';
+    }
+  },
+
+  async saveNotes(id) {
+    const note = document.getElementById(`notesEdit-${id}`)?.value || '';
+    await PaperAPI.updatePaper(id, { notes: note });
+    this.viewNotes(id);
+  },
+
+  async viewNotes(id) {
+    const el = document.getElementById(`notes-${id}`);
+    if (!el) return;
+    const p = await PaperAPI.getPaper(id);
+    if (p?.notes) {
+      el.innerHTML = RenderUtils.renderMarkdown(p.notes) + 
+        `<div class="notes-btns" style="margin-top:8px">
+          <button class="btn" onclick="PaperApp.editNotes(${id})">编辑</button>
+          <button class="btn" onclick="this.parentElement.style.display='none'">取消</button>
+        </div>`;
+      el.style.display = 'block';
+    } else {
+      el.innerHTML = `<div class="notes-btns" style="margin-top:8px">
+        <button class="btn" onclick="PaperApp.editNotes(${id})">添加笔记</button>
+        <button class="btn" onclick="this.parentElement.style.display='none'">取消</button>
+      </div>`;
+      el.style.display = 'block';
+    }
+  },
+
+  async editNotes(id) {
+    const el = document.getElementById(`notes-${id}`);
+    if (!el) return;
+    const p = await PaperAPI.getPaper(id);
+    el.innerHTML = `<textarea class="notes-edit" id="notesEdit-${id}" placeholder="笔记...支持 Markdown/LaTeX">${esc(p?.notes || '')}</textarea>
+      <div class="notes-actions">
+        <button class="btn btn-primary" onclick="PaperApp.saveNotes(${id})">保存</button>
+        <button class="btn" onclick="PaperApp.viewNotes(${id})">取消</button>
+      </div>`;
+  },
+
+  renderMarkdown(text) {
+    if (!text) return '';
+    let html = text;
+    html = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    html = html.replace(/\$\$([\s\S]*?)\$\$/g, '<div class="math-block">$1</div>');
+    html = html.replace(/\$([^\$\n]+?)\$/g, '<span class="math-inline">$1</span>');
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code class="lang-$1">$2</code></pre>');
+    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+    html = html.replace(/\n/g, '<br>');
+    return html;
   }
 };
 
 window.PaperApp = PaperApp;
+window.esc = esc;
+
+const TechTermsApp = {
+  terms: [],
+  stats: {},
+
+  async show() {
+    document.getElementById('techTermsPanel').style.display = 'block';
+    document.getElementById('paperList').style.display = 'none';
+    document.getElementById('appContainer').querySelector('.header').style.display = 'none';
+    await this.loadStats();
+    await this.render();
+  },
+
+  async hide() {
+    document.getElementById('techTermsPanel').style.display = 'none';
+    document.getElementById('paperList').style.display = 'block';
+    document.getElementById('appContainer').querySelector('.header').style.display = 'flex';
+  },
+
+  async loadStats() {
+    this.stats = await PaperAPI.getTechTermsStats();
+    document.getElementById('techTermsStats').innerHTML = `
+      <div class="stat-item"><div class="stat-num">${this.stats.total}</div><div class="stat-label">总计</div></div>
+      <div class="stat-item" style="border-color:var(--green)"><div class="stat-num" style="color:var(--green)">${this.stats.verified}</div><div class="stat-label">已审核</div></div>
+      <div class="stat-item" style="border-color:var(--yellow)"><div class="stat-num" style="color:var(--yellow)">${this.stats.unverified}</div><div class="stat-label">待审核</div></div>
+      <div class="stat-item" style="border-color:var(--accent)"><div class="stat-num" style="color:var(--accent)">${this.stats.candidates}</div><div class="stat-label">候选</div></div>
+      <div class="stat-item" style="border-color:var(--red)"><div class="stat-num" style="color:var(--red)">${this.stats.inconsistencies}</div><div class="stat-label">冲突</div></div>
+    `;
+    document.getElementById('techTermsSubtitle').textContent = `共 ${this.stats.total} 条术语`;
+  },
+
+  async render() {
+    const verified = document.getElementById('techTermsFilter').value;
+    const q = document.getElementById('techTermsSearch').value;
+    const sort = document.getElementById('techTermsSort').value;
+    this.terms = await PaperAPI.getTechTerms({ verified, q, sort });
+    if (!this.terms.length) {
+      document.getElementById('techTermsList').innerHTML = '<div class="empty">没有匹配的术语</div>';
+      return;
+    }
+    let html = '<table style="width:100%;border-collapse:collapse;font-size:.85rem"><thead style="background:var(--card)"><tr style="border-bottom:1px solid var(--border)">'
+      + '<th style="text-align:left;padding:8px;color:var(--muted)">英文</th><th style="text-align:left;padding:8px;color:var(--muted)">中文</th><th style="text-align:left;padding:8px;color:var(--muted)">上下文</th><th style="text-align:center;padding:8px;color:var(--muted)">使用</th><th style="text-align:center;padding:8px;color:var(--muted)">审核</th><th style="text-align:left;padding:8px;color:var(--muted)">操作</th></tr></thead><tbody>';
+    for (const t of this.terms) {
+      const verifiedBadge = t.verified ? '<span style="color:var(--green)">✓</span>' : '<span style="color:var(--muted)">○</span>';
+      html += `<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px;font-weight:600">${esc(t.term_en)}</td>
+        <td style="padding:8px">${esc(t.term_zh)}</td>
+        <td style="padding:8px;color:var(--muted);font-size:.78rem">${esc(t.context || '-')}</td>
+        <td style="padding:8px;text-align:center">${t.use_count}</td>
+        <td style="padding:8px;text-align:center">${verifiedBadge}</td>
+        <td style="padding:8px">
+          ${!t.verified ? `<button class="btn" style="padding:2px 8px;font-size:.72rem" onclick="TechTermsApp.verify(${t.id})">审核</button>` : ''}
+          <button class="btn" style="padding:2px 8px;font-size:.72rem" onclick="TechTermsApp.edit(${t.id})">编辑</button>
+          <button class="btn" style="padding:2px 8px;font-size:.72rem;border-color:var(--red);color:var(--red)" onclick="TechTermsApp.delete(${t.id})">删除</button>
+        </td>
+      </tr>`;
+    }
+    html += '</tbody></table>';
+    document.getElementById('techTermsList').innerHTML = html;
+  },
+
+  openAddModal() {
+    document.getElementById('techTermsEditId').value = '';
+    document.getElementById('techTermsEn').value = '';
+    document.getElementById('techTermsZh').value = '';
+    document.getElementById('techTermsContext').value = '';
+    document.getElementById('techTermsModalTitle').textContent = '添加术语';
+    document.getElementById('techTermsModal').classList.add('active');
+  },
+
+  async edit(id) {
+    const term = this.terms.find(t => t.id === id);
+    if (!term) return;
+    document.getElementById('techTermsEditId').value = id;
+    document.getElementById('techTermsEn').value = term.term_en;
+    document.getElementById('techTermsZh').value = term.term_zh;
+    document.getElementById('techTermsContext').value = term.context || '';
+    document.getElementById('techTermsModalTitle').textContent = '编辑术语';
+    document.getElementById('techTermsModal').classList.add('active');
+  },
+
+  closeModal() {
+    document.getElementById('techTermsModal').classList.remove('active');
+  },
+
+  async save() {
+    const id = document.getElementById('techTermsEditId').value;
+    const term_en = document.getElementById('techTermsEn').value.trim();
+    const term_zh = document.getElementById('techTermsZh').value.trim();
+    const context = document.getElementById('techTermsContext').value.trim();
+    if (!term_en || !term_zh) return alert('请填写英文和中文术语');
+    if (id) {
+      await PaperAPI.updateTechTerm(id, { term_en, term_zh, context });
+    } else {
+      await PaperAPI.addTechTerm({ term_en, term_zh, context });
+    }
+    this.closeModal();
+    await this.render();
+    await this.loadStats();
+  },
+
+  async verify(id) {
+    await PaperAPI.verifyTechTerm(id);
+    await this.render();
+    await this.loadStats();
+  },
+
+  async delete(id) {
+    if (!confirm('确定删除此术语？')) return;
+    await PaperAPI.deleteTechTerm(id);
+    await this.render();
+    await this.loadStats();
+  },
+
+  async exportJson() {
+    const data = await PaperAPI.exportTechTerms();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'tech_terms.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  },
+
+  async importJson(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const text = await file.text();
+    try {
+      const data = JSON.parse(text);
+      const result = await PaperAPI.importTechTerms(data);
+      alert(`导入完成：新增 ${result.inserted} 条，更新 ${result.updated} 条`);
+      await this.render();
+      await this.loadStats();
+    } catch (e) {
+      alert('导入失败：' + e.message);
+    }
+    input.value = '';
+  }
+};
+
+window.TechTermsApp = TechTermsApp;
