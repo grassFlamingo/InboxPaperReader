@@ -78,6 +78,8 @@ function renderAiStars(stars) {
   return `<span class="ai-stars"><span class="label">AI</span>${renderStars(stars)}</span>`;
 }
 
+const WEB_CONTENT_TYPES = ['wechat_article', 'blog_post', 'twitter_thread', 'other'];
+
 function renderCard(p, idx, options = {}) {
   const { grid = false, showNum = true } = options;
   const srcType = p.source_type || 'paper';
@@ -86,12 +88,29 @@ function renderCard(p, idx, options = {}) {
   const onClick = status === 'unread' ? ` onclick="PaperApp.markReading(${p.id},event)"` : '';
   const href = paperUrl(p);
   const numHtml = showNum ? `<div class="paper-num">${idx}</div>` : '';
+  const hasMarkdown = p.markdown_content && p.markdown_content.length > 50;
+  const hasPreview = p.preview_image && p.preview_image.length > 50;
+  const isArxiv = p.arxiv_id && srcType === 'paper';
+  
+  let readBtn = '';
+  if (WEB_CONTENT_TYPES.includes(srcType)) {
+    readBtn = `<button class="btn" id="readerBtn-${p.id}" onclick="PaperApp.openReader(${p.id})">${hasMarkdown ? '📖 阅读' : '📄 阅读'}</button>`;
+  } else if (isArxiv && hasPreview) {
+    readBtn = `<button class="btn" onclick="PaperApp.openPdf(${p.id})">📄 阅读</button>`;
+  } else if (isArxiv) {
+    readBtn = `<button class="btn" id="cacheBtn-${p.id}" onclick="PaperApp.cachePaper(${p.id})">⬇ 缓存</button>`;
+  }
+
+  const previewHtml = hasPreview ? `<div class="paper-preview"><img src="${p.preview_image}" alt="preview"></div>` : '';
+  const titleWithPreview = hasPreview ? ` data-preview="true"` : '';
+  const tooltipHtml = hasPreview ? `<div class="paper-tooltip" style="background-image:url(${p.preview_image})"></div>` : '';
 
   return `
     <div class="${cardClass}">
+      ${previewHtml}
       <div class="paper-header">
         ${numHtml}
-        <div class="paper-title">${STATUS_ICONS[status]} <a href="${esc(href)}" target="_blank" rel="noopener"${onClick}>${esc(p.title)}</a></div>
+        <div class="paper-title"${titleWithPreview}>${tooltipHtml}${STATUS_ICONS[status]} <a href="${esc(href)}" target="_blank" rel="noopener"${onClick}>${esc(p.title)}</a></div>
         ${renderAiStars(p.stars)}
       </div>
       <div class="paper-meta">
@@ -102,11 +121,12 @@ function renderCard(p, idx, options = {}) {
       </div>
       ${p.abstract ? `<div class="paper-abstract">${esc(p.abstract)}</div>` : ''}
       ${renderAiSummary(p)}
-      ${p.notes ? `<div class="paper-notes" id="notes-${p.id}">${this.renderMarkdown(p.notes)}</div>` : ''}
+      ${p.notes ? `<div class="paper-notes" id="notes-${p.id}">${renderMarkdown(p.notes)}</div>` : ''}
       ${(p.tags || p.ai_category) ? `<div class="paper-tags">${renderAiCatTag(p.ai_category)}${renderTags(p.tags)}</div>` : ''}
       <div class="paper-notes" id="notes-${p.id}" style="display:none"></div>
       ${renderUserRating(p)}
       <div class="paper-actions">
+        ${readBtn}
         <button class="btn" onclick="PaperApp.viewNotes(${p.id})">📝 笔记</button>
         <button class="btn btn-ai" id="aiBtn-${p.id}" onclick="PaperApp.aiSummarize(${p.id})">✨ AI 摘要</button>
         <button class="btn" onclick="PaperApp.cycleStatus(${p.id},'${status}')">${STATUS_LABELS[status]}</button>
@@ -148,5 +168,6 @@ window.RenderUtils = {
   renderSourceBadge, renderUserRating, renderAiSummary, renderAiStars,
   renderCard, renderCategoryHeader, renderStats, renderCategorySelect, renderPaperList,
   renderMarkdown,
-  SOURCE_TYPE_ICONS, SOURCE_TYPE_NAMES, STATUS_ORDER, STATUS_NEXT, STATUS_LABELS
+  SOURCE_TYPE_ICONS, SOURCE_TYPE_NAMES, STATUS_ORDER, STATUS_NEXT, STATUS_LABELS,
+  WEB_CONTENT_TYPES
 };

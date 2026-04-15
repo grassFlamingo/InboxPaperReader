@@ -3,6 +3,8 @@ const { callLlm, cleanThinkTags } = require('../services/llm');
 const config = require('../../config');
 const { PaperMetadataFetcher } = require('../services/email');
 const { extractTechTermsFromText, upsertTechTerm } = require('./techterms');
+const { processMarkdownConversion, WEB_CONTENT_TYPES } = require('../services/markdown');
+const cacheService = require('../services/cache');
 
 const bgState = {
   running: false,
@@ -33,6 +35,19 @@ const WORKER_TASKS = {
         return { done: 1, msg: metadata.title.substring(0, 40) };
       }
       return { done: 0, msg: null };
+    }
+  },
+
+  markdown: {
+    name: 'markdown',
+    label: 'Markdown',
+    getQuery: () => db.queryAll(`
+      SELECT * FROM papers WHERE source_type IN (${WEB_CONTENT_TYPES.map(() => '?').join(',')})
+      AND (markdown_content IS NULL OR markdown_content = '' OR LENGTH(markdown_content) < 100)
+      ORDER BY id DESC
+    `),
+    process: async (p) => {
+      return await processMarkdownConversion(p);
     }
   },
 
@@ -92,6 +107,22 @@ const WORKER_TASKS = {
 
       return { done: 1, msg: terms.length > 0 ? `${terms.length} terms` : null };
     }
+  },
+
+  cache: {
+    name: 'cache',
+    label: 'Cache PDF',
+    getQuery: () => db.queryAll(`
+      SELECT p.* FROM papers p
+      LEFT JOIN cached_papers cp ON p.id = cp.paper_id
+      WHERE p.arxiv_id IS NOT NULL AND p.arxiv_id != ''
+      AND cp.id IS NULL
+      ORDER BY p.priority DESC, p.id DESC
+      LIMIT 20
+    `),
+    process: async (p) => {
+      return await cacheService.downloadPaper(p);
+    }
   }
 };
 
@@ -145,6 +176,8 @@ function setupBgWorkerRoutes(app) {
     const { current } = bgState;
     let label = 'idle';
     if (current === 'fetch') label = 'Metadata';
+    else if (current === 'markdown') label = 'Markdown';
+    else if (current === 'cache') label = 'Cache PDF';
     else if (current === 'summarize') label = 'AI Summary';
     else if (current && current.includes(':')) label = current;
     
@@ -176,5 +209,7 @@ function setupBgWorkerRoutes(app) {
 module.exports = { 
   setupBgWorkerRoutes, 
   startBgSummary: () => runBgWorker('summarize'),
-  startBgFetch: () => runBgWorker('fetch')
+  startBgFetch: () => runBgWorker('fetch'),
+  startBgMarkdown: () => runBgWorker('markdown'),
+  startBgCache: () => runBgWorker('cache')
 };

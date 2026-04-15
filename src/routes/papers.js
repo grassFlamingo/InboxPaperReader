@@ -4,6 +4,7 @@ const { callLlm, cleanThinkTags } = require('../services/llm');
 const config = require('../../config');
 const emailSync = require('../services/email');
 const { buildGlossary } = require('./techterms');
+const cacheService = require('../services/cache');
 
 function setupPaperRoutes(app) {
   // GET /api/papers - List papers with filters
@@ -14,11 +15,16 @@ function setupPaperRoutes(app) {
 
     if (category) { query += ' AND category = ?'; params.push(category); }
     if (status) { query += ' AND status = ?'; params.push(status); }
+    else { query += ' AND status != ?'; params.push('done'); }
     if (q) { query += ' AND (title LIKE ? OR authors LIKE ? OR abstract LIKE ? OR tags LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
 
     if (sort === 'date') query += ' ORDER BY created_at DESC';
+    else if (sort === 'date_asc') query += ' ORDER BY created_at ASC';
     else if (sort === 'title') query += ' ORDER BY title ASC';
+    else if (sort === 'title_asc') query += ' ORDER BY title DESC';
     else if (sort === 'stars') query += ' ORDER BY stars DESC, id ASC';
+    else if (sort === 'stars_asc') query += ' ORDER BY stars ASC, id ASC';
+    else if (sort === 'priority_asc') query += ' ORDER BY priority ASC, id ASC';
     else query += ' ORDER BY priority DESC, id ASC';
 
     const rows = db.queryAll(query, params);
@@ -54,6 +60,13 @@ function setupPaperRoutes(app) {
   app.delete('/api/papers/:id', (req, res) => {
     db.runQuery('DELETE FROM papers WHERE id = ?', [req.params.id]);
     res.json({ message: 'deleted' });
+  });
+
+  // GET /api/papers/:id/markdown - Get markdown content
+  app.get('/api/papers/:id/markdown', (req, res) => {
+    const paper = db.queryOne('SELECT markdown_content, source_url FROM papers WHERE id = ?', [req.params.id]);
+    if (!paper) return res.status(404).json({ error: 'not found' });
+    res.json({ markdown: paper.markdown_content || '', source_url: paper.source_url });
   });
 
   // GET /api/categories
@@ -139,6 +152,46 @@ IMPORTANT: Do NOT use <think/> tags. Reply directly with JSON only.`;
   app.get('/api/sync-status', (req, res) => {
     res.json(emailSync.getSyncStatus());
   });
+
+  // POST /api/papers/:id/cache - Cache paper PDF
+  app.post('/api/papers/:id/cache', async (req, res) => {
+    const paper = db.queryOne('SELECT * FROM papers WHERE id = ?', [req.params.id]);
+    if (!paper) return res.status(404).json({ error: 'not found' });
+
+    const result = await cacheService.downloadPaper(paper);
+    res.json(result);
+  });
+
+  // GET /api/papers/:id/cache - Get cached paper info
+  app.get('/api/papers/:id/cache', (req, res) => {
+    const cached = cacheService.getCachedPaper(parseInt(req.params.id));
+    if (!cached) return res.json({ cached: false });
+    res.json({ cached: true, file_path: cached.file_path, file_size: cached.file_size, preview_image: cached.preview_image });
+  });
+
+  // DELETE /api/papers/:id/cache - Delete cached paper
+  app.delete('/api/papers/:id/cache', (req, res) => {
+    const result = cacheService.deleteCachedPaper(parseInt(req.params.id));
+    res.json({ deleted: result });
+  });
+
+  // GET /api/cached-papers - List all cached papers
+  app.get('/api/cached-papers', (req, res) => {
+    const rows = cacheService.getAllCachedPapers();
+    res.json(rows);
+  });
+
+  // GET /api/papers/:id/file - Serve cached PDF
+  app.get('/api/papers/:id/file', (req, res) => {
+    const cached = cacheService.getCachedPaper(parseInt(req.params.id));
+    if (!cached || !fs.existsSync(cached.file_path)) {
+      return res.status(404).json({ error: 'not cached' });
+    }
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline');
+    res.sendFile(cached.file_path);
+  });
 }
 
+const fs = require('fs');
 module.exports = setupPaperRoutes;

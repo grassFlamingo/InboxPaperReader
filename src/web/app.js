@@ -405,6 +405,70 @@ const PaperApp = {
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
     html = html.replace(/\n/g, '<br>');
     return html;
+  },
+
+  async openReader(id) {
+    const btn = document.querySelector(`#readerBtn-${id}`);
+    if (btn) {
+      btn.classList.add('loading');
+      btn.textContent = '⏳ 加载中...';
+    }
+    try {
+      const d = await PaperAPI.getMarkdown(id);
+      const p = this.papers.find(p => p.id === id);
+      if (!p) return;
+      document.getElementById('readerTitle').textContent = p.title;
+      if (d.markdown && d.markdown.length > 50) {
+        document.getElementById('readerContent').innerHTML = marked.parse(d.markdown);
+      } else {
+        document.getElementById('readerContent').innerHTML = '<div style="color:var(--muted)">暂无 Markdown 内容，正在转换...</div>';
+      }
+      document.getElementById('readerModal').classList.add('active');
+    } catch(e) {
+      alert('加载失败: ' + e.message);
+    }
+    if (btn) {
+      btn.classList.remove('loading');
+      btn.textContent = '📖 阅读';
+    }
+  },
+
+  closeReader() {
+    document.getElementById('readerModal').classList.remove('active');
+  },
+
+  async cachePaper(id) {
+    const btn = document.getElementById(`cacheBtn-${id}`);
+    if (btn) {
+      btn.classList.add('loading');
+      btn.textContent = '⏳ 缓存中...';
+    }
+    try {
+      const d = await PaperAPI.cachePaper(id);
+      if (d.success) {
+        if (btn) {
+          btn.textContent = '📄 阅读';
+          btn.onclick = () => this.openPdf(id);
+        }
+        this.render();
+      } else {
+        alert('缓存失败: ' + d.msg);
+        if (btn) {
+          btn.classList.remove('loading');
+          btn.textContent = '⬇ 缓存';
+        }
+      }
+    } catch(e) {
+      alert('缓存失败: ' + e.message);
+      if (btn) {
+        btn.classList.remove('loading');
+        btn.textContent = '⬇ 缓存';
+      }
+    }
+  },
+
+  async openPdf(id) {
+    window.open(`/api/papers/${id}/file`, '_blank');
   }
 };
 

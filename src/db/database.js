@@ -88,6 +88,7 @@ function migrate() {
     { col: 'user_rating', def: 'INTEGER DEFAULT 0' },
     { col: 'source_type', def: "TEXT DEFAULT 'paper'" },
     { col: 'notes', def: "TEXT DEFAULT ''" },
+    { col: 'markdown_content', def: "TEXT DEFAULT ''" },
   ];
   for (const { col, def } of migrations) {
     if (!cols.includes(col)) {
@@ -112,6 +113,27 @@ function migrate() {
       )
     `);
     db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_tech_terms_unique ON tech_terms(term_en, term_zh, context)`);
+  }
+
+  const cacheTableExists = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name='cached_papers'");
+  if (cacheTableExists.length === 0 || cacheTableExists[0].values.length === 0) {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS cached_papers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        paper_id INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        file_size INTEGER DEFAULT 0,
+        preview_image TEXT,
+        cached_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (paper_id) REFERENCES papers(id)
+      )
+    `);
+    db.run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_cached_papers_paper_id ON cached_papers(paper_id)`);
+  }
+
+  const paperCols = db.exec('PRAGMA table_info(papers)')[0].values.map(c => c[1]);
+  if (!paperCols.includes('preview_image')) {
+    db.run(`ALTER TABLE papers ADD COLUMN preview_image TEXT`);
   }
 
   saveDb();

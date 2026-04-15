@@ -110,6 +110,26 @@ const api = {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     }).then(r => r.json());
+  },
+
+  async getMarkdown(id) {
+    return fetch(`${API}/api/papers/${id}/markdown`).then(r => r.json());
+  },
+
+  async cachePaper(id) {
+    return fetch(`${API}/api/papers/${id}/cache`, { method: 'POST' }).then(r => r.json());
+  },
+
+  async getCachedPaper(id) {
+    return fetch(`${API}/api/papers/${id}/cache`).then(r => r.json());
+  },
+
+  async deleteCachedPaper(id) {
+    return fetch(`${API}/api/papers/${id}/cache`, { method: 'DELETE' }).then(r => r.json());
+  },
+
+  async getCachedPapers() {
+    return fetch(`${API}/api/cached-papers`).then(r => r.json());
   }
 };
 
