@@ -128,42 +128,6 @@ class BaseLayoutDetectionService {
   }
 
   /**
-   * Calculate dimensions for resizing the image while keeping aspect ratio
-   * @param {number} originalWidth
-   * @param {number} originalHeight
-   * @returns {{resizeWidth: number, resizeHeight: number, resizeRatio: number, padWidth: number, padHeight: number}}
-   */
-  calculateResizeDimensions(originalWidth, originalHeight) {
-
-    let resizeWidth = originalWidth;
-    let resizeHeight = originalHeight;
-    let resizeRatio = 1.0;
-
-    if (Math.max(resizeHeight, resizeWidth) > this.modelSize) {
-      resizeRatio = this.modelSize / (resizeHeight > resizeWidth ? resizeHeight : resizeWidth);
-      resizeWidth = Math.round(resizeWidth * resizeRatio);
-      resizeHeight = Math.round(resizeHeight * resizeRatio);
-    }
-
-    const top = Math.floor((this.modelSize - resizeHeight) / 2);
-    const left = Math.floor((this.modelSize - resizeWidth) / 2);
-
-    return {
-      resizeWidth,
-      resizeHeight,
-      resizeRatio,
-      pad: {
-        top: top,
-        bottom: this.modelSize - resizeHeight - top,
-        left: left,
-        right: this.modelSize - resizeWidth - left,
-        background: { r: 255, g: 255, b: 255 },
-      },
-      maxSlideLen: this.modelSize,
-    };
-  }
-
-  /**
    * Preprocess image for detection using Sharp
    * @param {Buffer} imageBuffer
    * @returns {Promise<PreprocessResult>}
@@ -171,20 +135,18 @@ class BaseLayoutDetectionService {
   async preprocess(imageBuffer) {
     const image = sharp(imageBuffer);
     const metadata = await image.metadata();
-    const originalWidth = metadata.width;
-    const originalHeight = metadata.height;
+    const maxSlideLen = this.modelSize;
 
-    const { resizeWidth, resizeHeight, resizeRatio, pad, maxSlideLen } =
-      this.calculateResizeDimensions(originalWidth, originalHeight);
+    const resizeW = maxSlideLen / metadata.width;
+    const resizeH = maxSlideLen / metadata.height;
 
     // Resize keeping aspect ratio, then composite onto white background to pad to 640x640
     const resizedImage = await image
       .resize(maxSlideLen, maxSlideLen, { 
-        fit: 'contain',
+        // fit: 'contain',
+        fit: 'fill', // ignore ratio
         position: 'centre',
       });
-
-    // console.log(`resizeWidth: ${resizeWidth}, resizeHeight: ${resizeHeight}, resizeRatio: ${resizeRatio}, pad: ${pad}`);
 
     // await resizedImage.toFile('./resized.png', (err) => {
     //   if (err) throw err;
@@ -192,19 +154,13 @@ class BaseLayoutDetectionService {
     // });
 
     const tensorResult = await imageToTensor(resizedImage);
-    const scaleData = new Float32Array([resizeRatio, resizeRatio]);
+    const scaleData = new Float32Array([resizeH, resizeW]);
 
     return {
-      tensorData: tensorResult.tensorData,
-      tensorWidth: tensorResult.width,
-      tensorHeight: tensorResult.height,
-      pad,
+      data: tensorResult.tensorData,
+      width: tensorResult.width,
+      height: tensorResult.height,
       scaleData,
-      originalWidth,
-      originalHeight,
-      resizeRatio,
-      resizeWidth,
-      resizeHeight,
       maxSlideLen,
     };
   }
@@ -217,17 +173,7 @@ class BaseLayoutDetectionService {
    * @returns {DetectionResult[]}
    */
   postprocess(detections, count, input) {
-
-    const pad = input.pad;
-    const maxSlideLen = input.maxSlideLen;
-    const resizeWidth = input.resizeWidth;
-    const resizeHeight = input.resizeHeight;
-    const originalWidth = input.originalWidth;
-    const originalHeight = input.originalHeight;
-    const resizeRatio = input.resizeRatio;
-    const originalPadLeft = pad.left / resizeRatio;
-    const originalPadTop = pad.top / resizeRatio;
-
+    const { data, width, height, scaleData, maxSlideLen } = input;
     const results = [];
 
     for (let j = 0; j < count; j++) {
@@ -238,17 +184,11 @@ class BaseLayoutDetectionService {
       if (confidence < this.scoreThreshold) continue;
       if (classId >= LAYER_CLASSES.length) continue;
 
-
-      let x1 = d[2] - originalPadLeft;
-      let y1 = d[3] - originalPadTop;
-      let x2 = d[4] - originalPadLeft;
-      let y2 = d[5] - originalPadTop;
-
       results.push({
         classId,
         label: LAYER_CLASSES[classId],
         confidence,
-        bbox: { x1, y1, x2, y2 },
+        bbox: { x1: d[2], y1: d[3], x2: d[4], y2: d[5] },
         color: COLORS[classId] || [0, 0, 0],
       });
     }
@@ -270,18 +210,14 @@ class BaseLayoutDetectionService {
 
     const input = await this.preprocess(imageBuffer);
 
-    this.log('Running inference...');
-
     const feeds = {
-      'image': new ort.Tensor(input.tensorData, [1, 3, input.tensorHeight, input.tensorWidth]),
+      'image': new ort.Tensor(input.data, [1, 3, input.height, input.width]),
       'scale_factor': new ort.Tensor(input.scaleData, [1, 2])
     };
 
     const results = await this.session.run(feeds);
     const detections = results['fetch_name_0'];
     const count = results['fetch_name_1'].data[0];
-
-    this.log('Inference complete');
 
     return this.postprocess(detections, count, input);
   }
