@@ -90,7 +90,7 @@ function renderCard(p, idx, options = {}) {
   const href = paperUrl(p);
   const numHtml = showNum ? `<div class="paper-num">${idx}</div>` : '';
   const hasMarkdown = p.markdown_content && p.markdown_content.length > 50;
-  const hasPreview = p.preview_image && p.preview_image.length > 50;
+  const hasPreview = p.preview_image && (p.preview_image.startsWith('/api/') || p.preview_image.startsWith('data:'));
   const isArxiv = p.arxiv_id && srcType === 'paper';
   const isCached = p.cached_file_path && p.cached_file_path.length > 10;
   const useCached = isCached ? 1 : 0;
@@ -106,44 +106,46 @@ function renderCard(p, idx, options = {}) {
   }
 
   let cropStyle = '';
+  let titleFromPdf = '';
+  let titleY = 0.5;
   try {
     if (p.layout_data) {
       const layout = JSON.parse(p.layout_data);
-      if (layout.title_bbox) {
-        const tb = layout.title_bbox;
-        const yRatio = (tb.y1 + tb.y0) / 2 / 800;
-        const cropPos = Math.min(Math.max(yRatio * 100, 10), 70);
+      const bbox = layout.highlighted_bbox || layout.title_bbox;
+      const imgH = layout.image_height || 800;
+      if (bbox) {
+        if (layout.highlighted_label === 'image') {
+          titleFromPdf = '📷 图片';
+        } else if (layout.title_bbox?.text) {
+          titleFromPdf = layout.title_bbox.text;
+        }
+        const tb = bbox;
+        titleY = ((tb.y1 + tb.y2) / 2) / imgH;
+        const cropPos = Math.min(Math.max(titleY * 100, 10), 70);
         cropStyle = `object-position:center ${cropPos}%;`;
       }
+    }
+    if (!titleFromPdf && p.title_location) {
+      try {
+        const loc = JSON.parse(p.title_location);
+        if (loc.text) titleFromPdf = loc.text;
+        if (loc.y_ratio) titleY = loc.y_ratio;
+      } catch (e) {}
     }
   } catch (e) {}
   const previewImg = hasPreview ? `<img src="${p.preview_image}" alt="preview"${cropStyle ? ` style="${cropStyle}"` : ''}>` : '';
   const paperLink = paperUrl(p);
   const tooltipId = hasPreview ? `tooltip-${p.id}` : '';
   const previewHtml = hasPreview ? `<a href="${paperLink}" target="_blank" rel="noopener" class="paper-preview" data-tooltip="${tooltipId}">${previewImg}</a>` : '';
-  let titleFromPdf = '';
-  let yPos = 0;
-  try {
-    if (p.title_location) {
+  if (!titleFromPdf && p.title_location) {
+    try {
       const loc = JSON.parse(p.title_location);
-      titleFromPdf = loc.text || '';
-      yPos = loc.y_ratio || 0;
-    }
-    if (p.layout_data) {
-      const layout = JSON.parse(p.layout_data);
-      if (layout.title_bbox && layout.title_label) {
-        const detectedTitle = layout.title_label === 'doc_title' ? '' : layout.title_bbox?.text || '';
-        if (detectedTitle) {
-          titleFromPdf = detectedTitle;
-          yPos = layout.title_bbox.y1 / (p.preview_image ? 800 : 1) * 0.15;
-        } else if (!titleFromPdf) {
-          titleFromPdf = p.title;
-        }
-      }
-    }
-  } catch (e) {}
+      if (loc.text) titleFromPdf = loc.text;
+      if (loc.y_ratio) titleY = loc.y_ratio;
+    } catch (e) {}
+  }
   const tooltipTitle = titleFromPdf || p.title;
-  const bgPos = yPos > 0 ? `background-position:center ${Math.min(yPos * 100, 80)}%` : 'background-position:center top';
+  const bgPos = titleY > 0 ? `background-position:center ${Math.min(titleY * 100, 80)}%` : 'background-position:center top';
   const tooltipStyle = hasPreview ? `background-image:url(${p.preview_image});${bgPos}` : '';
   const tooltipHtml = hasPreview ? `<div id="${tooltipId}" class="paper-tooltip" style="${tooltipStyle}" data-title="${esc(tooltipTitle)}"></div>` : '';
   const titleWithPreviewAttr = hasPreview ? ` data-tooltip="${tooltipId}"` : '';
@@ -196,6 +198,7 @@ function renderStats(s) {
     <div class="stat-item unread"><div class="stat-num">${s.unread}</div><div class="stat-label">未读</div></div>
     <div class="stat-item reading"><div class="stat-num">${s.reading}</div><div class="stat-label">阅读中</div></div>
     <div class="stat-item done"><div class="stat-num">${s.done}</div><div class="stat-label">已读</div></div>
+    <div class="stat-item cached"><div class="stat-num">${s.cached||0}</div><div class="stat-label">已缓存</div></div>
   `;
 }
 

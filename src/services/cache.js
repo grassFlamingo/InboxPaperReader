@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { exec, execSync } = require('child_process');
 const fetch = require('node-fetch');
 const db = require('../db/database');
 const config = require('../../config');
@@ -45,7 +45,12 @@ async function downloadPaper(paper) {
   console.log(`[Cache] Downloading #${paper.id}: ${paper.arxiv_id}`);
 
   try {
-    const res = await fetch(pdfUrl, { timeout: 60000 });
+    const res = await fetch(pdfUrl, {
+      timeout: 5 * 60 * 1000, // 5 min
+      headers: {
+        'user-agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36'
+      }
+    });
     if (!res.ok) {
       return { success: false, msg: `HTTP ${res.status}` };
     }
@@ -54,9 +59,12 @@ async function downloadPaper(paper) {
     fs.writeFileSync(filePath, buffer);
 
     const previewImage = await extractPreview(filePath);
-    let previewBase64 = null;
+    let previewPath = null;
     if (previewImage) {
-      previewBase64 = `data:image/png;base64,${previewImage.toString('base64')}`;
+      const previewDir = path.join(CACHE_DIR, 'previews');
+      if (!fs.existsSync(previewDir)) fs.mkdirSync(previewDir, { recursive: true });
+      previewPath = path.join(previewDir, `${paper.id}_preview.png`);
+      fs.writeFileSync(previewPath, previewImage);
     }
 
     const pageInfo = await extractTitleLocation(filePath);
@@ -64,14 +72,16 @@ async function downloadPaper(paper) {
     db.runQuery(`
       INSERT INTO cached_papers (paper_id, file_path, file_size, preview_image)
       VALUES (?, ?, ?, ?)
-    `, [paper.id, filePath, buffer.length, previewBase64]);
+    `, [paper.id, filePath, buffer.length, previewPath]);
 
-    if (previewBase64 || pageInfo) {
+    if (previewPath || pageInfo) {
+      const previewUrl = previewPath ? `/api/papers/${paper.id}/preview` : null;
+      db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewPath, paper.id]);
       db.runQuery('UPDATE papers SET preview_image = ?, title_location = ? WHERE id = ?', 
-        [previewBase64, pageInfo ? JSON.stringify(pageInfo) : null, paper.id]);
+        [previewUrl, pageInfo ? JSON.stringify(pageInfo) : null, paper.id]);
     }
 
-    return { success: true, msg: 'cached', file_path: filePath, preview: !!previewBase64, title_location: pageInfo };
+    return { success: true, msg: 'cached', file_path: filePath, preview: !!previewPath, title_location: pageInfo };
   } catch (e) {
     console.error('[Cache] Download failed:', e.message);
     return { success: false, msg: e.message };
@@ -80,37 +90,8 @@ async function downloadPaper(paper) {
 
 async function extractTitleLocation(pdfPath) {
   try {
-    const { execSync } = require('child_process');
-    const result = execSync(`python3 -c "
-from pdfminer.high_level import extract_text, extract_pages
-from pdfminer.layout import LTTextContainer, LTChar, LTAnno, LAParams
-import json
-import re
-
-laparams = LAParams(line_margin=0.5, word_margin=0.1, char_margin=2.0)
-text = extract_text('${pdfPath.replace(/'/g, "'\\''")}', laparams=laparams)
-
-lines = [l.strip() for l in text.split('\\n') if l.strip()]
-
-result = {'first_lines': lines[:10], 'title_location': None}
-
-# Find title: first line that's not email/doi/arXiv related, has reasonable length
-for i, line in enumerate(lines[:8]):
-    if len(line) > 15 and len(line) < 300:
-        # Skip lines with common non-title patterns
-        lower = line.lower()
-        if any(x in lower for x in ['@', 'http', 'doi', 'arxiv:', 'email', 'university', 'department']):
-            continue
-        # Title often has mixed case or specific patterns
-        if not line.isupper() and not line.islower():
-            result['title_location'] = {'line': i, 'text': line[:150], 'y_ratio': i * 0.12}
-            break
-        elif len(line) > 30:
-            result['title_location'] = {'line': i, 'text': line[:150], 'y_ratio': i * 0.12}
-            break
-
-print(json.dumps(result))
-"`, { timeout: 30000, encoding: 'utf8' });
+    const scriptPath = path.join(__dirname, '../../scripts/extract_title.py');
+    const result = execSync(`python3 "${scriptPath}" "${pdfPath}"`, { timeout: 30000, encoding: 'utf8' });
 
     const info = JSON.parse(result.trim());
     console.log(`[Cache] Title: line ${info.title_location?.line}: ${info.title_location?.text?.substring(0, 50)}`);
@@ -172,18 +153,22 @@ async function regeneratePreview(paperId) {
 
   try {
     const previewImage = await extractPreview(cached.file_path);
-    let previewBase64 = null;
+    let previewPath = null;
     if (previewImage) {
-      previewBase64 = `data:image/png;base64,${previewImage.toString('base64')}`;
+      const previewDir = path.join(CACHE_DIR, 'previews');
+      if (!fs.existsSync(previewDir)) fs.mkdirSync(previewDir, { recursive: true });
+      previewPath = path.join(previewDir, `${paperId}_preview.png`);
+      fs.writeFileSync(previewPath, previewImage);
     }
 
     const pageInfo = await extractTitleLocation(cached.file_path);
 
-    db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewBase64, paperId]);
+    const previewUrl = previewPath ? `/api/papers/${paperId}/preview` : null;
+    db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewPath, paperId]);
     db.runQuery('UPDATE papers SET preview_image = ?, title_location = ? WHERE id = ?', 
-      [previewBase64, pageInfo ? JSON.stringify(pageInfo) : null, paperId]);
+      [previewUrl, pageInfo ? JSON.stringify(pageInfo) : null, paperId]);
 
-    return { success: true, preview: !!previewBase64, title_location: pageInfo };
+    return { success: true, preview: !!previewPath, title_location: pageInfo };
   } catch (e) {
     console.error('[Cache] Regenerate failed:', e.message);
     return { success: false, msg: e.message };

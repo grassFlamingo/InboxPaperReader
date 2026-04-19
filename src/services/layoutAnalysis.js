@@ -83,11 +83,18 @@ class LayoutAnalysisService {
     }
 
     const modelBuffer = fs.readFileSync(modelPath);
-    this.session = await ort.InferenceSession.create(modelBuffer);
+    let ep = ['cpu'];
+    if (ort.getAvailableExecutionProviders) {
+      const available = ort.getAvailableExecutionProviders();
+      if (available.includes('CUDAExecutionProvider')) {
+        ep = ['CUDAExecutionProvider', 'CPUExecutionProvider'];
+      }
+    }
+    this.session = await ort.InferenceSession.create(modelBuffer, { executionProviders: ep });
     this.modelLoaded = true;
     this.lastUsed = Date.now();
     this.resetIdleTimer();
-    console.log('[LayoutService] Model loaded');
+    console.log(`[LayoutService] Model loaded with ${ep[0]}`);
   }
 
   resetIdleTimer() {
@@ -190,7 +197,7 @@ class LayoutAnalysisService {
 
     const pdfPath = cached.file_path;
     const previewDir = path.join(path.dirname(pdfPath), 'previews');
-    const page1Png = path.join(previewDir, `${path.basename(paperId, '.pdf')}_page1.png`);
+    const page1Png = path.join(previewDir, `paper_${paperId}_page1.png`);
 
     let pageImage;
     if (fs.existsSync(page1Png)) {
@@ -206,16 +213,25 @@ class LayoutAnalysisService {
       return { success: false, msg: 'failed to get page image' };
     }
 
+    const imageMeta = await sharp(pageImage).metadata();
+    const imageWidth = imageMeta.width;
+    const imageHeight = imageMeta.height;
+
     const detections = await this.detect(pageImage);
 
-    const titleDet = detections.find(d => 
-      d.label === 'doc_title' || d.label === 'paragraph_title'
-    );
+    let imageDet = detections.find(d => d.label === 'image');
+    let titleDet = detections.find(d => d.label === 'doc_title');
+    if (!titleDet) titleDet = detections.find(d => d.label === 'paragraph_title');
 
     const layoutData = JSON.stringify({
       detections,
       title_bbox: titleDet?.bbox || null,
+      image_bbox: imageDet?.bbox || null,
       title_label: titleDet?.label || null,
+      highlighted_bbox: imageDet?.bbox || titleDet?.bbox || null,
+      highlighted_label: imageDet ? 'image' : (titleDet?.label || null),
+      image_width: imageWidth,
+      image_height: imageHeight,
       analyzed_at: new Date().toISOString(),
     });
 
@@ -234,19 +250,21 @@ class LayoutAnalysisService {
     try {
       const { execSync } = require('child_process');
       const tempDir = fs.mkdtempSync(require('os').tmpdir() + '/layout_');
+      const tempPdf = path.join(tempDir, 'paper.pdf');
+      fs.copyFileSync(pdfPath, tempPdf);
       const outputPrefix = path.join(tempDir, 'page');
 
-      execSync(`pdftoppm -png -singlefile -f ${pageNum} -l ${pageNum} "${pdfPath}" "${outputPrefix}"`, { timeout: 30000 });
+      execSync(`pdftoppm -png -singlefile -f ${pageNum} -l ${pageNum} -- "${tempPdf}" "${outputPrefix}"`, { timeout: 30000 });
 
       const pngFile = `${outputPrefix}.png`;
       if (fs.existsSync(pngFile)) {
         const buffer = fs.readFileSync(pngFile);
         fs.unlinkSync(pngFile);
-        fs.rmdirSync(tempDir, { recursive: true });
+        fs.rmSync(tempDir, { recursive: true });
         return buffer;
       }
 
-      fs.rmdirSync(tempDir, { recursive: true });
+      fs.rmSync(tempDir, { recursive: true });
     } catch (e) {
       console.log('[LayoutService] PDF conversion failed:', e.message);
     }
@@ -271,7 +289,7 @@ async function getPapersNeedingLayoutAnalysis() {
     FROM papers p
     JOIN cached_papers cp ON p.id = cp.paper_id
     WHERE cp.file_path IS NOT NULL AND cp.file_path != ''
-    AND (p.layout_data IS NULL OR p.layout_data = '')
+    AND (p.layout_data IS NULL OR p.layout_data = '' OR p.layout_data = 'null')
     ORDER BY p.id DESC
     LIMIT 20
   `);

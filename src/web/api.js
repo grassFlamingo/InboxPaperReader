@@ -3,7 +3,10 @@ const API = '';
 const api = {
   async getPapers(params = {}) {
     const q = new URLSearchParams(params);
-    return fetch(`${API}/api/papers?${q}`).then(r => r.json());
+    return fetch(`${API}/api/papers?${q}`).then(r => r.json()).then(res => {
+      if (res.papers) return res;
+      return { papers: res, total: res.length, offset: 0, limit: res.length, hasMore: false };
+    });
   },
 
   async getPaper(id) {
@@ -130,6 +133,22 @@ const api = {
 
   async getCachedPapers() {
     return fetch(`${API}/api/cached-papers`).then(r => r.json());
+  },
+
+  async redetectLayout() {
+    return fetch(`${API}/api/layout-redetect`, { method: 'POST' }).then(r => r.json());
+  },
+
+  async getLayoutStats() {
+    return fetch(`${API}/api/layout-stats`).then(r => r.json());
+  },
+
+  async startBgWorker(task) {
+    return fetch(`${API}/api/bg-start`, { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task })
+    }).then(r => r.json());
   }
 };
 

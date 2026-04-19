@@ -22,81 +22,95 @@ function hideTooltip(el) { el.style.display = 'none'; lastTooltipEl = null; }
 const PaperApp = {
   papers: [],
   categories: [],
+  paperBatch: { papers: [], total: 0, offset: 0, limit: 50, hasMore: true, loading: false },
 
   async init() {
     await this.loadCategories();
-    await this.render();
+    await this.loadPapers(true);
+    this.render();
     this.startBgPoll();
+    this.setupInfiniteScroll();
   },
 
-  async loadCategories() {
-    this.categories = await PaperAPI.getCategories();
-    document.getElementById('filterCat').innerHTML = RenderUtils.renderCategorySelect(this.categories);
-  },
+  async loadPapers(reset = false) {
+    if (this.paperBatch.loading) return;
+    if (reset) this.paperBatch = { papers: [], total: 0, offset: 0, limit: 50, hasMore: true, loading: false };
+    if (!this.paperBatch.hasMore) return;
 
-  async loadStats() {
-    const s = await PaperAPI.getStats();
-    document.getElementById('stats').innerHTML = RenderUtils.renderStats(s);
-    // document.getElementById('subtitle').textContent = `SQLite 驱动 · 实时渲染 · ${s.total} 篇`;
-  },
-
-  async render() {
+    this.paperBatch.loading = true;
     const cat = document.getElementById('filterCat').value;
     const status = document.getElementById('filterStatus').value;
+    const cached = document.getElementById('filterCached').value;
     const sort = document.getElementById('sortBy').value;
     const q = document.getElementById('searchBox').value;
-    const sourceType = document.getElementById('filterSourceType').value;
-    const layoutMode = document.getElementById('layoutMode').value;
 
-    const params = {};
+    const params = { offset: this.paperBatch.offset, limit: this.paperBatch.limit };
     if (cat) params.category = cat;
     if (status) params.status = status;
+    if (cached) params.cached = cached;
     if (sort) params.sort = sort;
     if (q) params.q = q;
 
-    this.papers = await PaperAPI.getPapers(params);
+    const data = await PaperAPI.getPapers(params);
+    this.paperBatch.papers = reset ? data.papers : [...this.paperBatch.papers, ...data.papers];
+    this.paperBatch.total = data.total;
+    this.paperBatch.hasMore = data.hasMore;
+    this.paperBatch.offset += data.papers.length;
+    this.paperBatch.loading = false;
+    this.papers = this.paperBatch.papers;
+  },
 
+  setupInfiniteScroll() {
+    const container = document.getElementById('paperList');
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting && this.paperBatch.hasMore && !this.paperBatch.loading) {
+        this.loadPapers().then(() => this.renderPartial());
+      }
+    }, { rootMargin: '100px' });
+    if (container) observer.observe(container);
+    this._scrollObserver = observer;
+  },
+
+  renderPartial() {
+    this._updatePaperListDOM();
+  },
+
+  _updatePaperListDOM() {
+    const sourceType = document.getElementById('filterSourceType').value;
+    const layoutMode = document.getElementById('layoutMode').value;
+    let displayPapers = this.papers;
     if (sourceType) {
-      this.papers = this.papers.filter(p => (p.source_type || 'paper') === sourceType);
+      displayPapers = displayPapers.filter(p => (p.source_type || 'paper') === sourceType);
     }
-
-    await this.loadStats();
-
-    if (!this.papers.length) {
+    if (!displayPapers.length) {
       document.getElementById('paperList').innerHTML = '<div class="empty">没有匹配的论文</div>';
       return;
     }
-
-    this.papers.sort((a, b) => {
+    displayPapers.sort((a, b) => {
       const sa = RenderUtils.STATUS_ORDER[a.status] ?? 1;
       const sb = RenderUtils.STATUS_ORDER[b.status] ?? 1;
       if (sa !== sb) return sa - sb;
       return 0;
     });
-
     if (layoutMode === 'grid') {
       document.getElementById('appContainer').className = 'paper-container grid-mode';
-      document.getElementById('paperList').innerHTML = `<div class="paper-grid">${RenderUtils.renderPaperList(this.papers, { grid: true })}</div>`;
+      document.getElementById('paperList').innerHTML = `<div class="paper-grid">${RenderUtils.renderPaperList(displayPapers, { grid: true })}</div>`;
+      this._observeLoadMore();
       return;
     }
-
     document.getElementById('appContainer').className = 'paper-container';
-
     const activeGroups = {}, doneGroups = {};
-    this.papers.forEach(p => {
+    displayPapers.forEach(p => {
       const target = p.status === 'done' ? doneGroups : activeGroups;
       if (!target[p.category]) target[p.category] = [];
       target[p.category].push(p);
     });
-
     let html = '';
     let idx = 0;
-
     for (const [cat, items] of Object.entries(activeGroups)) {
       html += RenderUtils.renderCategoryHeader(cat, items.length);
       items.forEach(p => { html += RenderUtils.renderCard(p, ++idx); });
     }
-
     const donePapers = Object.values(doneGroups).flat();
     if (donePapers.length > 0) {
       html += `<div class="done-section" id="doneSection">
@@ -111,8 +125,41 @@ const PaperApp = {
       }
       html += `</div></div>`;
     }
-
     document.getElementById('paperList').innerHTML = html;
+    this._observeLoadMore();
+  },
+
+  _observeLoadMore() {
+    if (this._scrollObserver) {
+      const sentinel = document.getElementById('loadMoreSentinel');
+      if (sentinel && this.paperBatch.hasMore) {
+        this._scrollObserver.observe(sentinel);
+      } else if (sentinel) {
+        this._scrollObserver.unobserve(sentinel);
+      }
+    }
+  },
+
+  resetAndReload() {
+    this.paperBatch = { papers: [], total: 0, offset: 0, limit: 50, hasMore: true, loading: false };
+    this.render();
+  },
+
+  async loadCategories() {
+    this.categories = await PaperAPI.getCategories();
+    document.getElementById('filterCat').innerHTML = RenderUtils.renderCategorySelect(this.categories);
+  },
+
+  async loadStats() {
+    const s = await PaperAPI.getStats();
+    document.getElementById('stats').innerHTML = RenderUtils.renderStats(s);
+    // document.getElementById('subtitle').textContent = `SQLite 驱动 · 实时渲染 · ${s.total} 篇`;
+  },
+
+  async render() {
+    await this.loadPapers(true);
+    await this.loadStats();
+    this._updatePaperListDOM();
   },
 
   async markReading(id, e) {
@@ -120,20 +167,43 @@ const PaperApp = {
     const pUrl = e.currentTarget.href;
     await PaperAPI.updatePaper(id, { status: 'reading' });
     window.open(pUrl, '_blank');
-    this.render();
+    this.refreshInPlace();
     this.loadCategories();
   },
 
   async cycleStatus(id, current) {
     const next = RenderUtils.STATUS_NEXT[current] || 'reading';
     await PaperAPI.updatePaper(id, { status: next });
-    this.render();
+    this.refreshInPlace();
+  },
+
+  async refreshInPlace() {
+    const scrollY = window.scrollY;
+    const currentBatch = this.paperBatch;
+    const cat = document.getElementById('filterCat').value;
+    const status = document.getElementById('filterStatus').value;
+    const cached = document.getElementById('filterCached').value;
+    const sort = document.getElementById('sortBy').value;
+    const q = document.getElementById('searchBox').value;
+    const params = { offset: currentBatch.offset, limit: currentBatch.limit };
+    if (cat) params.category = cat;
+    if (status) params.status = status;
+    if (cached) params.cached = cached;
+    if (sort) params.sort = sort;
+    if (q) params.q = q;
+    const data = await PaperAPI.getPapers(params);
+    this.paperBatch.papers = data.papers;
+    this.paperBatch.total = data.total;
+    this.papers = data.papers;
+    await this.loadStats();
+    this._updatePaperListDOM();
+    window.scrollTo(0, scrollY);
   },
 
   async deletePaper(id) {
     if (!confirm('确定删除这篇论文？')) return;
     await PaperAPI.deletePaper(id);
-    this.render();
+    this.refreshInPlace();
     this.loadCategories();
   },
 
@@ -234,7 +304,7 @@ const PaperApp = {
       await PaperAPI.addPaper(data);
     }
     this.closeModal();
-    this.render();
+    this.refreshInPlace();
     this.loadCategories();
   },
 
@@ -286,7 +356,7 @@ const PaperApp = {
         `;
         btn.textContent = '✅ 已导入，再导入一条';
         btn.disabled = false;
-        this.render();
+        this.refreshInPlace();
         this.loadCategories();
       } else {
         res.style.display = 'block';
@@ -492,6 +562,33 @@ const PaperApp = {
       } else {
         window.open(`/api/papers/${id}/file`, '_blank');
       }
+    }
+  },
+
+  async redetectLayout() {
+    const btn = event.target;
+    btn.disabled = true;
+    btn.textContent = '⏳ 重检中...';
+    try {
+      const result = await PaperAPI.redetectLayout();
+      alert(`已重置 ${result.updated} 篇论文的布局数据，将由后台重新检测`);
+      await PaperAPI.startBgWorker('layout');
+      btn.textContent = '✅ 已重置';
+      setTimeout(() => { btn.disabled = false; btn.textContent = '重检布局'; }, 2000);
+    } catch (e) {
+      alert('重置失败: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = '重检布局';
+    }
+  },
+
+  async checkLayoutStats() {
+    try {
+      const s = await PaperAPI.getLayoutStats();
+      console.log(`Layout: ${s.analyzed}/${s.cached} analyzed, ${s.needsAnalysis} need analysis`);
+      return s;
+    } catch (e) {
+      console.error('Layout stats error:', e);
     }
   }
 };

@@ -19,6 +19,7 @@
       <div class="stats" id="stats"></div>
       <div style="margin-left: auto;"></div>
       <div class="header-actions">
+        <button class="btn" onclick="PaperApp.redetectLayout()" style="border-color:var(--accent);color:var(--accent)">重检布局</button>
         <button class="btn" onclick="TechTermsApp.show()" style="border-color:#a78bfa;color:#a78bfa">术语</button>
         <button class="btn" id="syncBtn" onclick="PaperApp.syncEmails()"
           style="border-color:var(--green);color:var(--green)">同步</button>
@@ -45,16 +46,21 @@
     </div>
 
     <div class="toolbar">
-      <select id="filterCat" onchange="PaperApp.render()">
+      <select id="filterCat" onchange="PaperApp.resetAndReload()">
         <option value="">全部分类</option>
       </select>
-      <select id="filterStatus" onchange="PaperApp.render()">
+      <select id="filterStatus" onchange="PaperApp.resetAndReload()">
         <option value="">全部状态</option>
         <option value="unread">未读</option>
         <option value="reading">阅读中</option>
         <option value="done">已读</option>
       </select>
-      <select id="filterSourceType" onchange="PaperApp.render()">
+      <select id="filterCached" onchange="PaperApp.resetAndReload()">
+        <option value="">全部</option>
+        <option value="cached">已缓存</option>
+        <option value="uncached">未缓存</option>
+      </select>
+      <select id="filterSourceType" onchange="PaperApp.resetAndReload()">
         <option value="">全部来源</option>
         <option value="paper">论文</option>
         <option value="wechat_article">微信文章</option>
@@ -62,7 +68,7 @@
         <option value="blog_post">博客</option>
         <option value="video">视频</option>
       </select>
-      <select id="sortBy" onchange="PaperApp.render()">
+      <select id="sortBy" onchange="PaperApp.resetAndReload()">
         <option value="priority">按优先级↓</option>
         <option value="priority_asc">按优先级↑</option>
         <option value="stars">按 AI 推荐↓</option>
@@ -72,14 +78,15 @@
         <option value="title">按标题↓</option>
         <option value="title_asc">按标题↑</option>
       </select>
-      <input type="text" id="searchBox" placeholder="搜索标题/作者/标签..." oninput="PaperApp.render()">
-      <select id="layoutMode" onchange="PaperApp.render()" style="width:auto">
+      <input type="text" id="searchBox" placeholder="搜索标题/作者/标签..." oninput="PaperApp.resetAndReload()">
+      <select id="layoutMode" onchange="PaperApp.resetAndReload()" style="width:auto">
         <option value="grid" selected>网格</option>
         <option value="list">列表</option>
       </select>
     </div>
 
     <div id="paperList"></div>
+    <div id="loadMoreSentinel" style="height:1px"></div>
 
     <!-- 术语管理面板 -->
     <div id="techTermsPanel" style="display:none">

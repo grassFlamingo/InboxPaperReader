@@ -129,7 +129,19 @@ const WORKER_TASKS = {
   layout: {
     name: 'layout',
     label: 'Doc Layout',
-    getQuery: () => layoutService.getPapersNeedingLayoutAnalysis(),
+    getQuery: () => {
+      const rows = db.queryAll(`
+        SELECT p.id, p.title, p.layout_data, cp.file_path
+        FROM papers p
+        JOIN cached_papers cp ON p.id = cp.paper_id
+        WHERE cp.file_path IS NOT NULL AND cp.file_path != ''
+        AND (p.layout_data IS NULL OR p.layout_data = '' OR p.layout_data = 'null')
+        ORDER BY p.id DESC
+        LIMIT 20
+      `);
+      console.log('[Layout] Query result:', rows.length, 'papers');
+      return rows;
+    },
     process: async (p) => {
       return await layoutService.runLayoutAnalysisForPaper(p.id);
     }
@@ -139,10 +151,14 @@ const WORKER_TASKS = {
 function runBgWorker(taskKey) {
   const task = WORKER_TASKS[taskKey];
   if (!task) return;
+  console.log(`[BG] runBgWorker called for: ${taskKey}`);
 
   (async () => {
     const state = bgState;
-    if (state.running) return;
+    if (state.running) {
+      console.log(`[BG-${task.label}] Already running, skipping`);
+      return;
+    }
     
     state.running = true;
     state.current = taskKey;
@@ -153,7 +169,7 @@ function runBgWorker(taskKey) {
     const ctx = task.prepare ? task.prepare() : {};
     const rows = task.getQuery();
     state.total = rows.length;
-    console.log(`[BG-${task.label}] Start: ${rows.length} papers`);
+    console.log(`[BG-${task.label}] Start: ${rows.length} papers, task: ${taskKey}`);
 
     for (const p of rows) {
       if (state.stop_flag) {

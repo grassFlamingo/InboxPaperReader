@@ -153,6 +153,10 @@ h1 {
   color: var(--green);
 }
 
+.stat-item.cached .stat-num {
+  color: var(--accent);
+}
+
 .toolbar {
   display: flex;
   gap: 8px;

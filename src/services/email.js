@@ -328,16 +328,13 @@ class EmailSyncService {
           this.imap.fetch(uids, {
             bodies: '',
             markSeen: false,
-          }).on('message', (msg, seqno) => {
+            requestUIDs: true,
+          }).on('message', (msg) => {
             const uid = msg.uid;
             const chunks = [];
             msg.on('body', (stream) => {
               stream.on('data', (chunk) => chunks.push(chunk));
               stream.on('end', async () => {
-                if (!uid || uid === undefined) {
-                  console.warn('[Email] Skipping message without UID, seqno:', seqno);
-                  return;
-                }
                 const buffer = Buffer.concat(chunks);
                 const parsed = await EmailParser.parse(buffer);
                 if (parsed) {

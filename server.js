@@ -83,6 +83,11 @@ const PORT = config.PORT;
       console.log('[BG-AI] Auto-summary will start in 12 seconds...');
     }, config.BG_WORKER.DELAY_MS + 10000);
 
+    setInterval(() => {
+      console.log('[BG] Periodic check: layout');
+      startBgLayout();
+    }, 60000);
+
     // Start scheduled email sync
     startEmailSync();
 

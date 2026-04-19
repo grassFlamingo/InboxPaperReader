@@ -7,16 +7,20 @@ const { buildGlossary } = require('./techterms');
 const cacheService = require('../services/cache');
 
 function setupPaperRoutes(app) {
-  // GET /api/papers - List papers with filters
+  // GET /api/papers - List papers with filters and pagination
   app.get('/api/papers', (req, res) => {
-    const { category, status, q, sort = 'priority' } = req.query;
+    const { category, status, q, sort = 'priority', offset = 0, limit = 50, cached } = req.query;
     let query = 'SELECT p.*, cp.file_path as cached_file_path FROM papers p LEFT JOIN cached_papers cp ON p.id = cp.paper_id WHERE 1=1';
+    let countQuery = 'SELECT COUNT(*) as total FROM papers WHERE 1=1';
     const params = [];
+    const countParams = [];
 
-    if (category) { query += ' AND category = ?'; params.push(category); }
-    if (status) { query += ' AND status = ?'; params.push(status); }
-    else { query += ' AND status != ?'; params.push('done'); }
-    if (q) { query += ' AND (title LIKE ? OR authors LIKE ? OR abstract LIKE ? OR tags LIKE ?)'; params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`); }
+    if (category) { query += ' AND category = ?'; countQuery += ' AND category = ?'; params.push(category); countParams.push(category); }
+    if (status) { query += ' AND status = ?'; countQuery += ' AND status = ?'; params.push(status); countParams.push(status); }
+    else { query += ' AND status != ?'; countQuery += ' AND status != ?'; params.push('done'); countParams.push('done'); }
+    if (q) { query += ' AND (title LIKE ? OR authors LIKE ? OR abstract LIKE ? OR tags LIKE ?)'; countQuery += ' AND (title LIKE ? OR authors LIKE ? OR abstract LIKE ? OR tags LIKE ?)'; const qparam = `%${q}%`; params.push(qparam, qparam, qparam, qparam); countParams.push(qparam, qparam, qparam, qparam); }
+    if (cached === 'cached') { query += ' AND cp.paper_id IS NOT NULL'; countQuery += ' AND id IN (SELECT paper_id FROM cached_papers)'; }
+    else if (cached === 'uncached') { query += ' AND cp.paper_id IS NULL'; countQuery += ' AND id NOT IN (SELECT paper_id FROM cached_papers)'; }
 
     if (sort === 'date') query += ' ORDER BY created_at DESC';
     else if (sort === 'date_asc') query += ' ORDER BY created_at ASC';
@@ -25,10 +29,16 @@ function setupPaperRoutes(app) {
     else if (sort === 'stars') query += ' ORDER BY stars DESC, id ASC';
     else if (sort === 'stars_asc') query += ' ORDER BY stars ASC, id ASC';
     else if (sort === 'priority_asc') query += ' ORDER BY priority ASC, id ASC';
-    else query += ' ORDER BY priority DESC, id ASC';
+    else query += ' ORDER BY CASE status WHEN "reading" THEN 0 WHEN "unread" THEN 1 ELSE 2 END, priority DESC, id ASC';
 
+    const parsedLimit = Math.min(parseInt(limit) || 50, 100);
+    const parsedOffset = parseInt(offset) || 0;
+
+    const total = db.queryOne(countQuery, countParams).total;
+
+    query += ` LIMIT ${parsedLimit} OFFSET ${parsedOffset}`;
     const rows = db.queryAll(query, params);
-    res.json(rows);
+    res.json({ papers: rows, total, offset: parsedOffset, limit: parsedLimit, hasMore: parsedOffset + rows.length < total });
   });
 
   // POST /api/papers - Add paper
@@ -81,7 +91,8 @@ function setupPaperRoutes(app) {
     const unread = db.queryOne("SELECT COUNT(*) as c FROM papers WHERE status='unread'").c;
     const reading = db.queryOne("SELECT COUNT(*) as c FROM papers WHERE status='reading'").c;
     const done = db.queryOne("SELECT COUNT(*) as c FROM papers WHERE status='done'").c;
-    res.json({ total, unread, reading, done });
+    const cached = db.queryOne("SELECT COUNT(*) as c FROM cached_papers").c;
+    res.json({ total, unread, reading, done, cached });
   });
 
   // POST /api/import-url - Import from URL with LLM extraction
@@ -192,6 +203,16 @@ IMPORTANT: Do NOT use <think/> tags. Reply directly with JSON only.`;
     res.sendFile(cached.file_path);
   });
 
+  // GET /api/papers/:id/preview - Serve preview image
+  app.get('/api/papers/:id/preview', (req, res) => {
+    const cached = cacheService.getCachedPaper(parseInt(req.params.id));
+    if (!cached || !cached.preview_image || !fs.existsSync(cached.preview_image)) {
+      return res.status(404).json({ error: 'no preview' });
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.sendFile(cached.preview_image);
+  });
+
   // POST /api/papers/:id/regenerate-preview - Regenerate preview for cached PDF
   app.post('/api/papers/:id/regenerate-preview', async (req, res) => {
     const result = await cacheService.regeneratePreview(parseInt(req.params.id));
@@ -215,6 +236,23 @@ IMPORTANT: Do NOT use <think/> tags. Reply directly with JSON only.`;
     } catch (e) {
       res.json({ analyzed: false });
     }
+  });
+
+  // POST /api/layout-redetect - Force re-detect all cached papers
+  app.post('/api/layout-redetect', (req, res) => {
+    db.runQuery("UPDATE papers SET layout_data = NULL WHERE id IN (SELECT paper_id FROM cached_papers WHERE file_path IS NOT NULL AND file_path != '')");
+    const count = db.queryOne("SELECT COUNT(*) as c FROM papers WHERE layout_data IS NULL AND id IN (SELECT paper_id FROM cached_papers)").c;
+    res.json({ updated: count });
+  });
+
+  // GET /api/layout-stats - Get layout analysis stats
+  app.get('/api/layout-stats', (req, res) => {
+    const cached = db.queryOne("SELECT COUNT(*) as c FROM cached_papers").c;
+    const needsAnalysis = db.queryOne(`SELECT COUNT(*) as c FROM papers p 
+      JOIN cached_papers cp ON p.id = cp.paper_id 
+      WHERE (p.layout_data IS NULL OR p.layout_data = '' OR p.layout_data = 'null')`).c;
+    const analyzed = cached - needsAnalysis;
+    res.json({ cached, analyzed, needsAnalysis });
   });
 }
 
