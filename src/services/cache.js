@@ -6,12 +6,14 @@ const db = require('../db/database');
 const config = require('../../config');
 const { BackgroundService } = require('./backgroundService');
 
-const CACHE_DIR = path.join(__dirname, '../../cache/papers');
+const CACHE_DIR = config.CACHE?.DIR || path.join(__dirname, '../../../cache');
+const PDF_DIR = path.join(CACHE_DIR, config.CACHE?.PDF_SUBDIR || 'papers');
+const PREVIEW_DIR = path.join(CACHE_DIR, config.CACHE?.PREVIEW_SUBDIR || 'papers/previews');
 
 function ensureCacheDir() {
-  if (!fs.existsSync(CACHE_DIR)) {
-    fs.mkdirSync(CACHE_DIR, { recursive: true });
-  }
+  if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+  if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
+  if (!fs.existsSync(PREVIEW_DIR)) fs.mkdirSync(PREVIEW_DIR, { recursive: true });
 }
 
 function sanitizeFilename(name) {
@@ -19,11 +21,11 @@ function sanitizeFilename(name) {
 }
 
 function findCachedFile(arxivId) {
-  if (!fs.existsSync(CACHE_DIR)) return null;
-  const files = fs.readdirSync(CACHE_DIR);
+  if (!fs.existsSync(PDF_DIR)) return null;
+  const files = fs.readdirSync(PDF_DIR);
   for (const file of files) {
     if (file.startsWith(arxivId + '_') && file.endsWith('.pdf')) {
-      return path.join(CACHE_DIR, file);
+      return path.join(PDF_DIR, file);
     }
   }
   return null;
@@ -35,12 +37,12 @@ function backfillExistingCachedPapers() {
     return;
   }
 
-  if (!fs.existsSync(CACHE_DIR)) {
-    console.debug('[Cache] CACHE_DIR does not exist, skipping backfill');
+  if (!fs.existsSync(PDF_DIR)) {
+    console.debug('[Cache] PDF_DIR does not exist, skipping backfill');
     return;
   }
 
-  const files = fs.readdirSync(CACHE_DIR).filter(f => f.endsWith('.pdf'));
+  const files = fs.readdirSync(PDF_DIR).filter(f => f.endsWith('.pdf'));
   console.log(`[Cache] Backfilling ${files.length} cached files...`);
 
   let count = 0;
@@ -60,7 +62,7 @@ function backfillExistingCachedPapers() {
       continue;
     }
 
-    const filePath = path.join(CACHE_DIR, file);
+    const filePath = path.join(PDF_DIR, file);
     const fileSize = fs.statSync(filePath).size;
 
     console.debug(`[Cache] Backfill INSERT: paper_id=${paper.id}, file=${filePath}, size=${fileSize}`);
@@ -109,7 +111,7 @@ async function downloadPaper(paper) {
     const fileSize = fs.statSync(existingFile).size;
     const existingFileName = path.basename(existingFile);
     const previewFileName = `${paper.id}_preview.png`;
-    const previewFullPath = path.join(CACHE_DIR, 'previews', previewFileName);
+    const previewFullPath = path.join(PREVIEW_DIR, previewFileName);
     const hasPreview = fs.existsSync(previewFullPath);
 
     // console.debug(`[Cache] existing=${!!existing}, fileSize=${fileSize}, hasPreview=${hasPreview}`);
@@ -127,7 +129,7 @@ async function downloadPaper(paper) {
   const pdfUrl = `https://arxiv.org/pdf/${paper.arxiv_id}.pdf`;
   const safeTitle = sanitizeFilename(paper.title);
   const fileName = `${paper.arxiv_id}_${safeTitle}.pdf`;
-  const filePath = path.join(CACHE_DIR, fileName);
+  const filePath = path.join(PDF_DIR, fileName);
 
   console.log(`[Cache] Downloading #${paper.id}: ${paper.arxiv_id}`);
 
@@ -176,7 +178,7 @@ function deleteCachedPaper(paperId) {
   if (!cached) return false;
 
   try {
-    const fullPath = path.join(CACHE_DIR, cached.file_path);
+    const fullPath = path.join(PDF_DIR, cached.file_path);
     if (cached.file_path && fs.existsSync(fullPath)) {
       fs.unlinkSync(fullPath);
     }
@@ -194,7 +196,7 @@ async function regeneratePreview(paperId) {
     return { success: false, msg: 'cached file not found' };
   }
   
-  const fullPath = path.join(CACHE_DIR, cached.file_path);
+  const fullPath = path.join(PDF_DIR, cached.file_path);
   if (!fs.existsSync(fullPath)) {
     return { success: false, msg: 'cached file not found' };
   }
@@ -317,5 +319,7 @@ module.exports = {
   regenerateAllPreviews,
   backfillExistingCachedPapers,
   CACHE_DIR,
+  PDF_DIR,
+  PREVIEW_DIR,
   CacheBackgroundService,
 };

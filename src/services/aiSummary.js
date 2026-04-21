@@ -44,11 +44,12 @@ class AISummaryService extends BackgroundService {
 
     for (const paper of papers) {
       try {
+        console.debug(`[${this.label}] Processing #${paper.id}: ${paper.title?.slice(0, 50)}`);
         await this._processPaper(paper, ctx);
         this.status.processed++;
       } catch (e) {
         this.status.errors++;
-        console.error(`[${this.label}] Error #${paper.id}:`, e.message);
+        console.error(`[${this.label}] Error #${paper.id}:`, e.message, e.stack);
         await this._setTimeout(2000);
       }
       await this.yieldIfNeeded();
@@ -58,24 +59,28 @@ class AISummaryService extends BackgroundService {
     console.log(`[${this.label}] Done: ${this.status.processed} summarized, ${this.status.errors} errors`);
   }
 
-  async _processPaper(paper, ctx) {
+async _processPaper(paper, ctx) {
     let summary = paper.summary || '', aiCategory = paper.ai_category || '', stars = paper.stars || 0;
 
     if (!summary) {
+      console.debug(`[${this.label}] Generating summary for #${paper.id}`);
       const userContent = `Title: ${paper.title}\n` +
         (paper.authors ? `Authors: ${paper.authors}\n` : '') +
         (paper.category ? `Category: ${paper.category}\n` : '') +
         (paper.tags ? `Tags: ${paper.tags}\n` : '') +
         `Abstract: ${paper.abstract}`;
-      summary = cleanThinkTags(await callLlm(ctx.systemPrompt, userContent));
+      summary = cleanThinkTags(await callLlm(ctx.systemPrompt, userContent, 500));
+      console.debug(`[${this.label}] Summary result:`, summary?.slice(0, 100));
     }
 
     if (!aiCategory || !stars) {
+      console.debug(`[${this.label}] Classifying #${paper.id}`);
       const catList = config.AI_CATEGORIES.join('、');
       const classifyPrompt = `从以下分类选择最合适的：[${catList}]。评估1-5星：5星=里程碑，4星=方法新颖，3星=常规价值，2星=参考有限，1星=低相关${ctx.prefText}
-严格按JSON输出：{"category":"分类名","stars":数字,"reason":"一句话理由"}`;
+ 严格按JSON输出：{"category":"分类名","stars":数字,"reason":"一句话理由"}`;
       const classifyContent = `Title: ${paper.title}\n` + (paper.authors ? `Authors: ${paper.authors}\n` : '') + `Abstract: ${paper.abstract.substring(0, 800)}`;
-      const classResult = cleanThinkTags(await callLlm(classifyPrompt, classifyContent));
+      const classResult = cleanThinkTags(await callLlm(classifyPrompt, classifyContent, 500));
+      console.debug(`[${this.label}] Classification result:`, classResult?.slice(0, 100));
       const jsonMatch = classResult.match(/\{[^}]+\}/);
 
       if (jsonMatch) {

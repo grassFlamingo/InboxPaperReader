@@ -130,7 +130,7 @@ class PaperMetadataFetcher {
       try {
         const url = `${ARXIV_API}?id_list=${arxivId}`;
         const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 15000);
+        const timeout = setTimeout(() => controller.abort(), 600000);
         
         const response = await fetch(url, { 
           signal: controller.signal,
@@ -142,7 +142,7 @@ class PaperMetadataFetcher {
         return this.parseArxivResponse(text, arxivId);
       } catch (e) {
         console.warn(`[PaperMetadataFetcher] arXiv API attempt ${attempt}/${retries} failed for ${arxivId}: ${e.message}`);
-        if (attempt < retries) await new Promise(r => setTimeout(r, 2000));
+        if (attempt < retries) await new Promise(r => setTimeout(r, 5000));
       }
     }
     

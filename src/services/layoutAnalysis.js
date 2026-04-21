@@ -4,7 +4,13 @@ const path = require('path');
 const sharp = require('sharp');
 const db = require('../db/database');
 const config = require('../../config');
-const { CACHE_DIR } = require('./cache');
+
+const CACHE_DIR = config.CACHE?.DIR || undefined;
+if (!CACHE_DIR) {
+  throw new Error('CACHE_DIR is not configured');
+}
+const PREVIEW_DIR = path.join(CACHE_DIR, config.CACHE?.PREVIEW_SUBDIR || 'previews');
+const PDF_DIR = path.join(CACHE_DIR, config.CACHE?.PDF_SUBDIR || 'papers');
 
 const LAYER_CLASSES = [
   'paragraph_title', 'image', 'text', 'number', 'abstract', 'content',
@@ -190,19 +196,22 @@ class LayoutAnalysisService {
   }
 
   async analyzeCachedPaper(paperId) {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    if (!fs.existsSync(PDF_DIR)) fs.mkdirSync(PDF_DIR, { recursive: true });
+    if (!fs.existsSync(PREVIEW_DIR)) fs.mkdirSync(PREVIEW_DIR, { recursive: true });
+
     const cached = db.queryOne('SELECT * FROM cached_papers WHERE paper_id = ?', [paperId]);
     if (!cached || !cached.file_path) {
       return { success: false, msg: 'cached file not found' };
     }
 
-    const pdfPath = path.join(CACHE_DIR, cached.file_path);
+    const pdfPath = path.join(PDF_DIR, cached.file_path);
     if (!fs.existsSync(pdfPath)) {
       return { success: false, msg: 'cached file not found' };
     }
 
-    const previewDir = path.join(CACHE_DIR, 'previews');
-    const page1Png = path.join(previewDir, `paper_${paperId}_page1.png`);
-    const altPreviewPng = path.join(previewDir, `${paperId}_preview.png`);
+    const page1Png = path.join(PREVIEW_DIR, `paper_${paperId}_page1.png`);
+    const altPreviewPng = path.join(PREVIEW_DIR, `${paperId}_preview.png`);
 
     let pageImage;
     let previewFileName = null;
@@ -332,19 +341,20 @@ function getLayoutService() {
 }
 
 async function ensurePreviewImage(paperId) {
+  if (!fs.existsSync(PREVIEW_DIR)) fs.mkdirSync(PREVIEW_DIR, { recursive: true });
+
   const cached = db.queryOne('SELECT * FROM cached_papers WHERE paper_id = ?', [paperId]);
   if (!cached || !cached.file_path) {
     return { success: false, msg: 'cached file not found' };
   }
 
-  const pdfPath = path.join(CACHE_DIR, cached.file_path);
+  const pdfPath = path.join(PDF_DIR, cached.file_path);
   if (!fs.existsSync(pdfPath)) {
     return { success: false, msg: 'cached file not found' };
   }
 
-  const previewDir = path.join(CACHE_DIR, 'previews');
-  const page1Png = path.join(previewDir, `paper_${paperId}_page1.png`);
-  const altPreviewPng = path.join(previewDir, `${paperId}_preview.png`);
+  const page1Png = path.join(PREVIEW_DIR, `paper_${paperId}_page1.png`);
+  const altPreviewPng = path.join(PREVIEW_DIR, `${paperId}_preview.png`);
 
   if (fs.existsSync(page1Png) || fs.existsSync(altPreviewPng)) {
     const previewFileName = fs.existsSync(page1Png) ? `paper_${paperId}_page1.png` : `${paperId}_preview.png`;
