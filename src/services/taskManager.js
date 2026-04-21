@@ -21,11 +21,12 @@ const WORKER_CHECK_INTERVAL_MS = config.BG_WORKER?.WORKER_CHECK_INTERVAL_MS || 3
 let heartbeatInterval = null;
 
 if (!isMainThread) {
-  db.connect().then(() => {
+  try {
+    db.connect();
     parentPort.postMessage({ ready: true });
-  }).catch((e) => {
+  } catch (e) {
     console.error('[Worker] DB connect error:', e.message);
-  });
+  }
 
   parentPort.on('message', async (msg) => {
     const { task, args = {} } = msg;
@@ -342,10 +343,24 @@ class TaskManager {
         return { success: true, task, result };
       }
       const result = await this._runWorker(task, args);
+      
+      if (task !== EMAIL_TASK_NAME) {
+        await this._reloadDatabase();
+      }
+      
       return { success: true, task, result };
     } catch (e) {
       await this._updateStatus(task, 'error', e.message, 0);
       return { success: false, task, error: e.message };
+    }
+  }
+
+  _reloadDatabase() {
+    try {
+      db.close();
+      db.connect();
+    } catch (e) {
+      console.error('[TaskManager] Failed to reload database:', e.message);
     }
   }
 
@@ -486,6 +501,7 @@ class TaskManager {
       'UPDATE bg_task_status SET last_status = ?, last_error = ?, last_run = CURRENT_TIMESTAMP, processed_count = ? WHERE task_name = ?',
       [status, error || null, processedCount || 0, taskName]
     );
+    db.save();
 
     const schedule = this.schedules.get(taskName);
     if (schedule) {

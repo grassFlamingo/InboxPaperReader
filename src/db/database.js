@@ -1,4 +1,4 @@
-const initSqlJs = require('sql.js');
+const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 const config = require('../../config');
@@ -9,9 +9,6 @@ class Database {
   constructor(dbPath = null) {
     this.db = null;
     this.DB_PATH = dbPath || path.join(__dirname, '../../', config.DB_PATH);
-    this.autoSaveEnabled = config.DB?.AUTO_SAVE !== false;
-    this.autoSaveIntervalMs = config.DB?.AUTO_SAVE_INTERVAL_MS || 30000;
-    this.autoSaveTimer = null;
   }
 
   static getInstance(dbPath = null) {
@@ -21,81 +18,75 @@ class Database {
     return instance;
   }
 
-  async connect() {
+  connect() {
     if (!this.db) {
-      const SQL = await initSqlJs();
-      const fileBuffer = fs.existsSync(this.DB_PATH) ? fs.readFileSync(this.DB_PATH) : null;
-      this.db = fileBuffer ? new SQL.Database(fileBuffer) : new SQL.Database();
-      this.db.run('PRAGMA journal_mode=WAL');
-
-      if (this.autoSaveEnabled) {
-        this.autoSaveTimer = setInterval(() => {
-          this.save();
-          console.debug('[DB] Auto-saved');
-        }, this.autoSaveIntervalMs);
-      }
+      this.db = new DatabaseSync(this.DB_PATH);
     }
     return this.db;
   }
 
   save() {
-    if (this.db) {
-      const data = this.db.export();
-      const buffer = Buffer.from(data);
-      fs.writeFileSync(this.DB_PATH, buffer);
-    }
+    // No-op: SQLite sync automatically persists changes
   }
 
   close() {
-    if (this.autoSaveTimer) {
-      clearInterval(this.autoSaveTimer);
-      this.autoSaveTimer = null;
+    if (this.db) {
+      this.db.close();
+      this.db = null;
     }
-    this.save();
   }
 
   queryAll(sql, params = []) {
     const stmt = this.db.prepare(sql);
-    if (params.length > 0) stmt.bind(params);
-    const rows = [];
-    while (stmt.step()) rows.push(stmt.getAsObject());
-    stmt.free();
+    const rows = params.length > 0 ? stmt.all(...params) : stmt.all();
     return rows;
   }
 
   queryOne(sql, params = []) {
-    const rows = this.queryAll(sql, params);
-    return rows[0] || null;
+    const stmt = this.db.prepare(sql);
+    const row = params.length > 0 ? stmt.get(...params) : stmt.get();
+    return row || null;
   }
 
   run(sql, params = []) {
-    this.db.run(sql, params);
+    if (params.length > 0) {
+      this.db.prepare(sql).run(...params);
+    } else {
+      this.db.exec(sql);
+    }
     this.save();
     if (sql.trim().toUpperCase().startsWith('INSERT')) {
-      const result = this.db.exec('SELECT MAX(rowid) as id FROM papers');
-      return result[0]?.values[0][0] || 0;
+      const stmt = this.db.prepare('SELECT last_insert_rowid() as id');
+      const row = stmt.get();
+      return row ? row.id : 0;
     }
     return 0;
   }
 
   runQuery(sql, params = []) {
-    this.db.run(sql, params);
+    if (params.length > 0) {
+      this.db.prepare(sql).run(...params);
+    } else {
+      this.db.exec(sql);
+    }
+    this.save();
     if (sql.trim().toUpperCase().startsWith('INSERT')) {
-      const result = this.db.exec('SELECT last_insert_rowid()');
-      return result[0]?.values[0][0] || 0;
+      const stmt = this.db.prepare('SELECT last_insert_rowid() as id');
+      const row = stmt.get();
+      return row ? row.id : 0;
     }
     return 0;
   }
 
-  async initTables() {
-    await this.connect();
+  initTables() {
+    this.connect();
 
     const sqlPath = path.join(__dirname, 'init.sql');
     const sqlContent = fs.readFileSync(sqlPath, 'utf8');
     const statements = sqlContent.split(';').filter(s => s.trim());
 
     for (const stmt of statements) {
-      if (stmt.trim()) this.db.run(stmt);
+      if (stmt.trim()) this.db.exec(stmt);
     }
 
     this.save();

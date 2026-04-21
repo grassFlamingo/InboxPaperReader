@@ -54,7 +54,7 @@ const PORT = config.PORT;
 
 (async () => {
   try {
-    await db.initTables();
+    db.initTables();
 
     console.log('[OK] Paper reading list server started');
     console.log(`   Local:  http://localhost:${PORT}`);

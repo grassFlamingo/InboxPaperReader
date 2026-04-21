@@ -24,6 +24,7 @@
     "marked": "^18.0.0",
     "node-fetch": "^2.7.0",
     "onnxruntime-node": "^1.24.3",
+    "openai": "^6.34.0",
     "pdf-to-png-converter": "^3.18.0",
     "sharp": "^0.34.5",
     "sql.js": "^1.10.3",

@@ -191,26 +191,43 @@ class LayoutAnalysisService {
 
   async analyzeCachedPaper(paperId) {
     const cached = db.queryOne('SELECT * FROM cached_papers WHERE paper_id = ?', [paperId]);
-    if (!cached || !cached.file_path || !fs.existsSync(cached.file_path)) {
+    if (!cached || !cached.file_path) {
       return { success: false, msg: 'cached file not found' };
     }
 
-    const pdfPath = cached.file_path;
-    const previewDir = path.join(path.dirname(pdfPath), 'previews');
+    const pdfPath = path.join(CACHE_DIR, cached.file_path);
+    if (!fs.existsSync(pdfPath)) {
+      return { success: false, msg: 'cached file not found' };
+    }
+
+    const previewDir = path.join(CACHE_DIR, 'previews');
     const page1Png = path.join(previewDir, `paper_${paperId}_page1.png`);
+    const altPreviewPng = path.join(previewDir, `${paperId}_preview.png`);
 
     let pageImage;
+    let previewFileName = null;
+
     if (fs.existsSync(page1Png)) {
       pageImage = fs.readFileSync(page1Png);
+      previewFileName = `paper_${paperId}_page1.png`;
+    } else if (fs.existsSync(altPreviewPng)) {
+      pageImage = fs.readFileSync(altPreviewPng);
+      previewFileName = `${paperId}_preview.png`;
     } else {
+      console.debug(`[LayoutService] Generating preview for #${paperId}`);
       pageImage = await this.convertPdfPageToImage(pdfPath, 1);
       if (pageImage) {
         fs.writeFileSync(page1Png, pageImage);
+        previewFileName = `paper_${paperId}_page1.png`;
       }
     }
 
     if (!pageImage) {
       return { success: false, msg: 'failed to get page image' };
+    }
+
+    if (previewFileName && previewFileName !== cached.preview_image) {
+      db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewFileName, paperId]);
     }
 
     const imageMeta = await sharp(pageImage).metadata();
@@ -237,7 +254,7 @@ class LayoutAnalysisService {
 
     db.runQuery('UPDATE cached_papers SET layout_data = ? WHERE paper_id = ?', [layoutData, paperId]);
 
-    console.log(`[LayoutService] Analyzed #${paperId}: ${detections.length} detections, title: ${titleDet?.label}`);
+    console.log(`[LayoutService] Analyzed #${paperId}: ${detections.length} detections, title: ${titleDet?.label}, updated`);
 
     return {
       success: true,
@@ -286,12 +303,12 @@ async function runLayoutAnalysisForPaper(paperId) {
 
 async function getPapersNeedingLayoutAnalysis() {
   return db.queryAll(`
-    SELECT p.id, p.title, cp.layout_data, cp.file_path
+    SELECT cp.paper_id, p.title, cp.layout_data, cp.file_path
     FROM papers p
     JOIN cached_papers cp ON p.id = cp.paper_id
     WHERE cp.file_path IS NOT NULL AND cp.file_path != ''
     AND (cp.layout_data IS NULL OR cp.layout_data = '' OR cp.layout_data = 'null')
-    ORDER BY p.id DESC
+    ORDER BY cp.id DESC
     LIMIT 20
   `);
 }
@@ -302,7 +319,7 @@ async function analyzeAllPending() {
 
   const results = [];
   for (const p of papers) {
-    const result = await runLayoutAnalysisForPaper(p.id);
+    const result = await runLayoutAnalysisForPaper(p.paper_id);
     results.push({ paper_id: p.id, ...result });
     await new Promise(r => setTimeout(r, 500)).catch(() => {});
   }
@@ -312,6 +329,41 @@ async function analyzeAllPending() {
 
 function getLayoutService() {
   return layoutService;
+}
+
+async function ensurePreviewImage(paperId) {
+  const cached = db.queryOne('SELECT * FROM cached_papers WHERE paper_id = ?', [paperId]);
+  if (!cached || !cached.file_path) {
+    return { success: false, msg: 'cached file not found' };
+  }
+
+  const pdfPath = path.join(CACHE_DIR, cached.file_path);
+  if (!fs.existsSync(pdfPath)) {
+    return { success: false, msg: 'cached file not found' };
+  }
+
+  const previewDir = path.join(CACHE_DIR, 'previews');
+  const page1Png = path.join(previewDir, `paper_${paperId}_page1.png`);
+  const altPreviewPng = path.join(previewDir, `${paperId}_preview.png`);
+
+  if (fs.existsSync(page1Png) || fs.existsSync(altPreviewPng)) {
+    const previewFileName = fs.existsSync(page1Png) ? `paper_${paperId}_page1.png` : `${paperId}_preview.png`;
+    if (previewFileName !== cached.preview_image) {
+      db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewFileName, paperId]);
+    }
+    return { success: true, preview: previewFileName };
+  }
+
+  console.debug(`[LayoutService] Generating preview for #${paperId}`);
+  const pageImage = await layoutService.convertPdfPageToImage(pdfPath, 1);
+  if (!pageImage) {
+    return { success: false, msg: 'failed to generate preview' };
+  }
+
+  fs.writeFileSync(page1Png, pageImage);
+  const previewFileName = `paper_${paperId}_page1.png`;
+  db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewFileName, paperId]);
+  return { success: true, preview: previewFileName };
 }
 
 class LayoutAnalysisBackgroundService extends BackgroundService {
@@ -326,7 +378,7 @@ class LayoutAnalysisBackgroundService extends BackgroundService {
 
   async hasPending() {
     const papers = db.queryAll(`
-      SELECT cp.id FROM cached_papers cp
+      SELECT cp.paper_id FROM cached_papers cp
       JOIN papers p ON p.id = cp.paper_id
       WHERE cp.file_path IS NOT NULL AND cp.file_path != ''
       AND (cp.layout_data IS NULL OR cp.layout_data = '' OR cp.layout_data = 'null')
@@ -337,7 +389,7 @@ class LayoutAnalysisBackgroundService extends BackgroundService {
 
   async execute() {
     const papers = db.queryAll(`
-      SELECT cp.id, p.title, cp.layout_data, cp.file_path
+      SELECT cp.paper_id, p.title, cp.layout_data, cp.file_path
       FROM cached_papers cp
       JOIN papers p ON p.id = cp.paper_id
       WHERE cp.file_path IS NOT NULL AND cp.file_path != ''
@@ -350,12 +402,12 @@ class LayoutAnalysisBackgroundService extends BackgroundService {
 
     for (const paper of papers) {
       try {
-        const result = await runLayoutAnalysisForPaper(paper.id);
+        const result = await runLayoutAnalysisForPaper(paper.paper_id);
         if (result.success) this.status.processed++;
         else this.status.errors++;
       } catch (e) {
         this.status.errors++;
-        console.error(`[${this.label}] Error #${paper.id}:`, e.message);
+        console.error(`[${this.label}] Error #${paper.paper_id}:`, e.message);
       }
       await this.yieldIfNeeded();
       await this._setTimeout(500);
@@ -372,5 +424,6 @@ module.exports = {
   getPapersNeedingLayoutAnalysis,
   analyzeAllPending,
   getLayoutService,
+  ensurePreviewImage,
   LayoutAnalysisBackgroundService,
 };

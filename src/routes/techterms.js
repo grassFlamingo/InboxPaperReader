@@ -34,33 +34,34 @@ function buildGlossary(inputText) {
 async function extractTechTermsFromText(text, sourcePaperId) {
   if (!text || text.length < 20) return [];
 
-  const systemPrompt = `你是术语提取专家。从以下技术文本中提取专业术语及其中文翻译。
+  const systemPrompt = `你是术语提取专家。从以下技术文本中提取最重要的3-5个核心专业术语及其中文翻译。
 要求：
-1. 只提取真正的技术术语（如算法名、模型名、技术概念）
+1. 只提取最核心的技术术语（如核心算法名、关键模型名、重要技术概念）
 2. 每个术语给出准确的简体中文翻译
-3. 考虑可能的上下文场景（可选，用于区分不同翻译）
 
-请按JSON数组格式输出，每项格式：
-[{"term_en":"术语英文","term_zh":"中文翻译","context":"相关上下文关键词,可选"},...]
+请按JSONL格式输出，每行一个JSON对象，最多5项：
+{"term_en":"术语英文","term_zh":"中文翻译"}
+{"term_en":"术语英文","term_zh":"中文翻译"}
 
-只输出JSON，不要其他内容。`;
+只输出JSONL，不要其他内容。`;
 
   try {
-    const llmResult = cleanThinkTags(await callLlm(systemPrompt, text, 300));
-    const jsonMatch = llmResult.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) return [];
-
-    const terms = JSON.parse(jsonMatch[0]);
-    if (!Array.isArray(terms)) return [];
+    const llmResult = cleanThinkTags(await callLlm(systemPrompt, text, 2048, '', { thinking: false }));
+    const lines = llmResult.split('\n').filter(l => l.trim());
 
     const validTerms = [];
-    for (const t of terms) {
-      if (t.term_en && t.term_zh && t.term_en.length > 1 && t.term_zh.length > 0) {
-        validTerms.push({
-          term_en: String(t.term_en).trim(),
-          term_zh: String(t.term_zh).trim(),
-          context: t.context ? String(t.context).trim() : ''
-        });
+    for (const line of lines) {
+      try {
+        const t = JSON.parse(line);
+        if (t.term_en && t.term_zh && String(t.term_en).length > 1 && String(t.term_zh).length > 0) {
+          validTerms.push({
+            term_en: String(t.term_en).trim(),
+            term_zh: String(t.term_zh).trim(),
+            context: t.context ? String(t.context).trim() : ''
+          });
+        }
+      } catch (e) {
+        console.debug('[TechTerms] Skipping invalid line:', line.slice(0, 50));
       }
     }
     return validTerms;

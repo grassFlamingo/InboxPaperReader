@@ -1,14 +1,18 @@
-const fetch = require('node-fetch');
+const OpenAI = require('openai');
 const config = require('../../config');
 
-async function callLlm(systemPrompt, userContent, maxTokens = 150, glossary = '') {
+const openai = new OpenAI({
+  baseURL: config.LLM.BASE_URL,
+  apiKey: config.LLM.API_KEY,
+});
+
+async function callLlm(systemPrompt, userContent, maxTokens = 150, glossary = '', options = {thinking: false}) {
   let model = config.LLM.MODEL;
-  
+
   if (!model) {
     try {
-      const res = await fetch(`${config.LLM.BASE_URL}/models`, { timeout: 3000 });
-      const data = await res.json();
-      if (data.data && data.data.length > 0) model = data.data[0].id;
+      const res = await openai.models.list({ timeout: 3000 });
+      if (res.data && res.data.length > 0) model = res.data[0].id;
     } catch (e) {
       model = '';
     }
@@ -17,32 +21,34 @@ async function callLlm(systemPrompt, userContent, maxTokens = 150, glossary = ''
   const glossaryNote = glossary ? '\n\n以下是术语参考（可选使用）：\n' + glossary + '\n' : '';
   const fullUserContent = userContent + glossaryNote;
 
-  const payload = {
-    model,
-    messages: [
-      { role: 'system', content: systemPrompt + '\n\nIMPORTANT: Do NOT use <think/> tags. Reply directly with the answer only.' },
-      { role: 'user', content: fullUserContent }
-    ],
-    max_tokens: maxTokens,
-    temperature: 0.3,
-    stop: ['<think', '<think/>', '<think >']
-  };
+  const messages = [
+    { role: 'system', content: systemPrompt + '\n\nIMPORTANT: Do NOT use <think/> tags. Reply directly with the answer only.' },
+    { role: 'user', content: fullUserContent }
+  ];
 
-  const res = await fetch(`${config.LLM.BASE_URL}/chat/completions`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${config.LLM.API_KEY}`
-    },
-    body: JSON.stringify(payload),
-    timeout: 30000
-  });
+  const extraBody = {};
+  if (options.thinking === false) {
+    extraBody.chat_template_kwargs = { thinking: false };
+  }
 
-  const result = await res.json();
-  let text = result.choices[0].message.content.trim();
-  text = text.replace(/<think.*?<\/\s*>/gs, '').trim();
-  text = text.replace(/<think.*$/gs, '').trim();
-  return text;
+  try {
+    const completion = await openai.chat.completions.create({
+      model,
+      messages,
+      max_tokens: maxTokens,
+      temperature: 0.3,
+      stop: ['<think', '<think/>', '<think >'],
+      ...(Object.keys(extraBody).length > 0 && { extra_body: extraBody })
+    });
+
+    let text = completion.choices[0].message.content.trim();
+    text = text.replace(/<think.*?<\/\s*>/gs, '').trim();
+    text = text.replace(/<think.*$/gs, '').trim();
+    return text;
+  } catch (e) {
+    console.error('[LLM] API error:', e.message);
+    throw e;
+  }
 }
 
 function cleanThinkTags(text) {

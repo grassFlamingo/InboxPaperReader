@@ -107,17 +107,19 @@ async function downloadPaper(paper) {
   if (existingFile && fs.existsSync(existingFile)) {
     console.log(`[Cache] Reusing existing file for #${paper.id}: ${paper.arxiv_id}`);
     const fileSize = fs.statSync(existingFile).size;
-    const previewPath = path.join(CACHE_DIR, 'previews', `${paper.id}_preview.png`);
-    const hasPreview = fs.existsSync(previewPath);
+    const existingFileName = path.basename(existingFile);
+    const previewFileName = `${paper.id}_preview.png`;
+    const previewFullPath = path.join(CACHE_DIR, 'previews', previewFileName);
+    const hasPreview = fs.existsSync(previewFullPath);
 
-    console.debug(`[Cache] existing=${!!existing}, fileSize=${fileSize}, hasPreview=${hasPreview}`);
+    // console.debug(`[Cache] existing=${!!existing}, fileSize=${fileSize}, hasPreview=${hasPreview}`);
 
     if (existing) {
-      console.debug(`[Cache] UPDATE cached_papers for #${paper.id}`);
-      db.runQuery(`UPDATE cached_papers SET file_path = ?, file_size = ?, preview_image = ?, status = 'completed' WHERE paper_id = ?`, [existingFile, fileSize, hasPreview ? previewPath : null, paper.id]);
+      // console.debug(`[Cache] UPDATE cached_papers for #${paper.id}`);
+      db.runQuery(`UPDATE cached_papers SET file_path = ?, file_size = ?, preview_image = ?, status = 'completed' WHERE paper_id = ?`, [existingFileName, fileSize, hasPreview ? previewFileName : null, paper.id]);
     } else {
-      console.debug(`[Cache] INSERT into cached_papers: paper_id=${paper.id}, file=${existingFile}, size=${fileSize}`);
-      db.runQuery(`INSERT INTO cached_papers (paper_id, file_path, file_size, preview_image, status) VALUES (?, ?, ?, ?, 'completed')`, [paper.id, existingFile, fileSize, hasPreview ? previewPath : null]);
+      // console.debug(`[Cache] INSERT into cached_papers: paper_id=${paper.id}, file=${existingFileName}, size=${fileSize}`);
+      db.runQuery(`INSERT INTO cached_papers (paper_id, file_path, file_size, preview_image, status) VALUES (?, ?, ?, ?, 'completed')`, [paper.id, existingFileName, fileSize, hasPreview ? previewFileName : null]);
     }
     return { success: true, msg: 'reuse cached', file_path: existingFile, preview: hasPreview };
   }
@@ -147,20 +149,11 @@ async function downloadPaper(paper) {
     const buffer = await res.buffer();
     fs.writeFileSync(filePath, buffer);
 
-    const previewImage = await extractPreview(filePath);
-    let previewPath = null;
-    if (previewImage) {
-      const previewDir = path.join(CACHE_DIR, 'previews');
-      if (!fs.existsSync(previewDir)) fs.mkdirSync(previewDir, { recursive: true });
-      previewPath = path.join(previewDir, `${paper.id}_preview.png`);
-      fs.writeFileSync(previewPath, previewImage);
-    }
-
     db.runQuery(`
-      UPDATE cached_papers SET file_path = ?, file_size = ?, preview_image = ?, status = 'completed' WHERE paper_id = ?
-    `, [filePath, buffer.length, previewPath, paper.id]);
+      UPDATE cached_papers SET file_path = ?, file_size = ?, status = 'completed' WHERE paper_id = ?
+    `, [fileName, buffer.length, paper.id]);
 
-    return { success: true, msg: 'cached', file_path: filePath, preview: !!previewPath };
+    return { success: true, msg: 'cached', file_path: filePath, preview: null };
   } catch (e) {
     console.error('[Cache] Download failed:', e.message);
     db.runQuery(`UPDATE cached_papers SET status = 'failed', error_message = ? WHERE paper_id = ?`, [e.message, paper.id]);
@@ -168,24 +161,10 @@ async function downloadPaper(paper) {
   }
 }
 
-async function extractPreview(pdfPath) {
+async function extractPreview(pdfPath, paperId) {
   try {
-    const previewDir = path.join(path.dirname(pdfPath), 'previews');
-    if (!fs.existsSync(previewDir)) {
-      fs.mkdirSync(previewDir, { recursive: true });
-    }
-
-    const baseName = path.basename(pdfPath, '.pdf');
-    const outputPrefix = path.join(previewDir, baseName);
-
-    execSync(`pdftoppm -png -singlefile -f 1 -l 1 "${pdfPath}" "${outputPrefix}"`, { timeout: config.CACHE?.PREVIEW_TIMEOUT_MS || 30000 });
-
-    const pngFile = `${outputPrefix}.png`;
-    if (fs.existsSync(pngFile)) {
-      const imageBuffer = fs.readFileSync(pngFile);
-      fs.unlinkSync(pngFile);
-      return imageBuffer;
-    }
+    const { ensurePreviewImage } = require('./layoutAnalysis');
+    return await ensurePreviewImage(paperId);
   } catch (e) {
     console.log('[Cache] Preview extraction failed:', e.message);
   }
@@ -197,8 +176,9 @@ function deleteCachedPaper(paperId) {
   if (!cached) return false;
 
   try {
-    if (cached.file_path && fs.existsSync(cached.file_path)) {
-      fs.unlinkSync(cached.file_path);
+    const fullPath = path.join(CACHE_DIR, cached.file_path);
+    if (cached.file_path && fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
     }
     db.runQuery('DELETE FROM cached_papers WHERE paper_id = ?', [paperId]);
     return true;
@@ -210,25 +190,21 @@ function deleteCachedPaper(paperId) {
 
 async function regeneratePreview(paperId) {
   const cached = getCachedPaper(paperId);
-  if (!cached || !cached.file_path || !fs.existsSync(cached.file_path)) {
+  if (!cached || !cached.file_path) {
+    return { success: false, msg: 'cached file not found' };
+  }
+  
+  const fullPath = path.join(CACHE_DIR, cached.file_path);
+  if (!fs.existsSync(fullPath)) {
     return { success: false, msg: 'cached file not found' };
   }
 
   console.log(`[Cache] Regenerating preview for #${paperId}`);
 
   try {
-    const previewImage = await extractPreview(cached.file_path);
-    let previewPath = null;
-    if (previewImage) {
-      const previewDir = path.join(CACHE_DIR, 'previews');
-      if (!fs.existsSync(previewDir)) fs.mkdirSync(previewDir, { recursive: true });
-      previewPath = path.join(previewDir, `${paperId}_preview.png`);
-      fs.writeFileSync(previewPath, previewImage);
-    }
-
-    db.runQuery('UPDATE cached_papers SET preview_image = ? WHERE paper_id = ?', [previewPath, paperId]);
-
-    return { success: true, preview: !!previewPath };
+    const { ensurePreviewImage } = require('./layoutAnalysis');
+    const result = await ensurePreviewImage(paperId);
+    return result;
   } catch (e) {
     console.error('[Cache] Regenerate failed:', e.message);
     return { success: false, msg: e.message };
