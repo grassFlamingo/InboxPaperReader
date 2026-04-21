@@ -6,7 +6,10 @@ const db = require('../db/database');
 const config = require('../../config');
 const { BackgroundService } = require('./backgroundService');
 
-const CACHE_DIR = config.CACHE?.DIR || path.join(__dirname, '../../../cache');
+const CACHE_DIR = config.CACHE?.DIR || undefined;
+if (!CACHE_DIR) {
+  throw new Error('CACHE_DIR is not configured');
+}
 const PDF_DIR = path.join(CACHE_DIR, config.CACHE?.PDF_SUBDIR || 'papers');
 const PREVIEW_DIR = path.join(CACHE_DIR, config.CACHE?.PREVIEW_SUBDIR || 'papers/previews');
 
@@ -104,7 +107,7 @@ async function downloadPaper(paper) {
 
   const reuseExisting = config.BG_WORKER?.REUSE_CACHED_PAPERS !== false;
   const existingFile = reuseExisting ? findCachedFile(paper.arxiv_id) : null;
-  console.debug(`[Cache] reuseExisting=${reuseExisting}, existingFile=${existingFile}`);
+  // console.debug(`[Cache] reuseExisting=${reuseExisting}, existingFile=${existingFile}`);
 
   if (existingFile && fs.existsSync(existingFile)) {
     console.log(`[Cache] Reusing existing file for #${paper.id}: ${paper.arxiv_id}`);

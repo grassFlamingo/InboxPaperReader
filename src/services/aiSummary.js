@@ -69,8 +69,8 @@ async _processPaper(paper, ctx) {
         (paper.category ? `Category: ${paper.category}\n` : '') +
         (paper.tags ? `Tags: ${paper.tags}\n` : '') +
         `Abstract: ${paper.abstract}`;
-      summary = cleanThinkTags(await callLlm(ctx.systemPrompt, userContent, 500));
-      console.debug(`[${this.label}] Summary result:`, summary?.slice(0, 100));
+      summary = cleanThinkTags(await callLlm(ctx.systemPrompt, userContent, 1024));
+      console.debug(`[${this.label}] Summary result:`, summary?.slice(0, 100), summary?.length > 100 ? '...' : '');
     }
 
     if (!aiCategory || !stars) {

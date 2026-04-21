@@ -22,6 +22,8 @@ class Database {
     if (!this.db) {
       this.db = new DatabaseSync(this.DB_PATH);
     }
+    this.db.exec('PRAGMA journal_mode=WAL');
+    this.db.exec('PRAGMA busy_timeout=5000');
     return this.db;
   }
 
