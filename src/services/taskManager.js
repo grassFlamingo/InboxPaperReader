@@ -337,7 +337,6 @@ class TaskManager {
           'UPDATE bg_task_status SET last_status = ?, last_error = ?, last_run = CURRENT_TIMESTAMP, processed_count = ? WHERE task_name = ?',
           ['success', null, result?.papersImported || 0, task]
         );
-        db.save();
         
         if (result?.papersImported > 0) {
           console.log(`[TaskManager] Email sync added ${result.papersImported} papers, triggering related tasks...`);
@@ -493,7 +492,6 @@ class TaskManager {
       'UPDATE bg_task_status SET last_status = ?, last_error = ?, last_run = CURRENT_TIMESTAMP, processed_count = ? WHERE task_name = ?',
       [status, error || null, processedCount || 0, taskName]
     );
-    db.save();
 
     const schedule = this.schedules.get(taskName);
     if (schedule) {

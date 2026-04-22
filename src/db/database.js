@@ -26,8 +26,6 @@ class Database {
     return this.db;
   }
 
-  save() {
-  }
 
   queryAll(sql, params = []) {
     const stmt = this.db.prepare(sql);
@@ -47,7 +45,6 @@ class Database {
     } else {
       this.db.exec(sql);
     }
-    this.save();
     if (sql.trim().toUpperCase().startsWith('INSERT')) {
       const stmt = this.db.prepare('SELECT last_insert_rowid() as id');
       const row = stmt.get();
@@ -62,7 +59,6 @@ class Database {
     } else {
       this.db.exec(sql);
     }
-    this.save();
     if (sql.trim().toUpperCase().startsWith('INSERT')) {
       const stmt = this.db.prepare('SELECT last_insert_rowid() as id');
       const row = stmt.get();

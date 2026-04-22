@@ -553,7 +553,7 @@ startBgPoll() {
     } else {
       const paper = this.papers.find(p => p.id === id);
       if (paper?.arxiv_id) {
-        window.open(`https://arxiv.org/pdf/${paper.arxiv_id}.pdf`, '_blank');
+        window.open(`https://arxiv.org/pdf/${paper.arxiv_id}${paper.arxiv_version || ''}.pdf`, '_blank');
       } else {
         window.open(`/api/papers/${id}/file`, '_blank');
       }

@@ -23,11 +23,12 @@ function sanitizeFilename(name) {
   return name.replace(/[<>:"/\\|?*]/g, '_').substring(0, 80);
 }
 
-function findCachedFile(arxivId) {
+function findCachedFile(arxivId, arxivVersion) {
   if (!fs.existsSync(PDF_DIR)) return null;
   const files = fs.readdirSync(PDF_DIR);
+  const baseName = arxivVersion ? `${arxivId}${arxivVersion}` : arxivId;
   for (const file of files) {
-    if (file.startsWith(arxivId + '_') && file.endsWith('.pdf')) {
+    if (file.startsWith(baseName + '_') && file.endsWith('.pdf')) {
       return path.join(PDF_DIR, file);
     }
   }
@@ -106,7 +107,7 @@ async function downloadPaper(paper) {
   }
 
   const reuseExisting = config.BG_WORKER?.REUSE_CACHED_PAPERS !== false;
-  const existingFile = reuseExisting ? findCachedFile(paper.arxiv_id) : null;
+  const existingFile = reuseExisting ? findCachedFile(paper.arxiv_id, paper.arxiv_version) : null;
   // console.debug(`[Cache] reuseExisting=${reuseExisting}, existingFile=${existingFile}`);
 
   if (existingFile && fs.existsSync(existingFile)) {
@@ -129,9 +130,10 @@ async function downloadPaper(paper) {
     return { success: true, msg: 'reuse cached', file_path: existingFile, preview: hasPreview };
   }
 
-  const pdfUrl = `https://arxiv.org/pdf/${paper.arxiv_id}.pdf`;
+  const pdfUrl = `https://arxiv.org/pdf/${paper.arxiv_id}${paper.arxiv_version || ''}.pdf`;
   const safeTitle = sanitizeFilename(paper.title);
-  const fileName = `${paper.arxiv_id}_${safeTitle}.pdf`;
+  const baseId = paper.arxiv_version ? `${paper.arxiv_id}${paper.arxiv_version}` : paper.arxiv_id;
+  const fileName = `${baseId}_${safeTitle}.pdf`;
   const filePath = path.join(PDF_DIR, fileName);
 
   console.log(`[Cache] Downloading #${paper.id}: ${paper.arxiv_id}`);

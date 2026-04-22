@@ -153,7 +153,7 @@ const previewImg = hasPreview ? `<img src="${previewSrc}" alt="preview"${cropSty
       </div>
       <div class="paper-meta">
         ${renderSourceBadge(srcType)}
-        ${p.arxiv_id ? `<span class="id">${esc(p.arxiv_id)}</span>` : ''}
+        ${p.arxiv_id ? `<span class="id">${esc(p.arxiv_id)}${p.arxiv_version ? `<span class="arxiv-version">${esc(p.arxiv_version)}</span>` : ''}</span>` : ''}
         ${p.source ? `<span>${esc(p.source)}</span>` : ''}
         ${p.authors ? `<span>${esc(p.authors)}</span>` : ''}
       </div>

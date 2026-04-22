@@ -68,9 +68,9 @@ function setupPaperRoutes(app) {
   app.post('/api/papers', (req, res) => {
     const d = req.body;
     const lastId = db.runQuery(`
-      INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, category, priority, status, tags, notes, source_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [d.title || '', d.authors || '', d.abstract || '', d.source || '', d.source_url || '', d.arxiv_id || '', d.category || '其他', d.priority ?? 3, d.status || 'unread', d.tags || '', d.notes || '', d.source_type || 'paper']);
+      INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, arxiv_version, category, priority, status, tags, notes, source_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [d.title || '', d.authors || '', d.abstract || '', d.source || '', d.source_url || '', d.arxiv_id || '', d.arxiv_version || null, d.category || '其他', d.priority ?? 3, d.status || 'unread', d.tags || '', d.notes || '', d.source_type || 'paper']);
     res.status(201).json({ id: lastId, message: 'added' });
   });
 
@@ -86,7 +86,7 @@ function setupPaperRoutes(app) {
   // PUT /api/papers/:id - Update paper
   app.put('/api/papers/:id', (req, res) => {
     const { id } = req.params;
-    const fields = ['title', 'authors', 'abstract', 'source', 'source_url', 'arxiv_id', 'category', 'priority', 'status', 'tags', 'notes', 'ai_category', 'stars', 'user_rating', 'source_type'];
+    const fields = ['title', 'authors', 'abstract', 'source', 'source_url', 'arxiv_id', 'arxiv_version', 'category', 'priority', 'status', 'tags', 'notes', 'ai_category', 'stars', 'user_rating', 'source_type'];
     const sets = [], vals = [];
     for (const f of fields) {
       if (f in req.body) { sets.push(`${f} = ?`); vals.push(req.body[f]); }

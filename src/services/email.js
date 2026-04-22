@@ -14,25 +14,40 @@ let syncStatus = {
 };
 
 class EmailParser {
+  static parseArxivId(rawId) {
+    const match = rawId.match(/^(\d{4}\.\d{4,5})(v\d+)?$/);
+    if (!match) return null;
+    return {
+      arxiv_id: match[1],
+      arxiv_version: match[2] || null,
+    };
+  }
+
   static extractArxivIds(html = '', text = '') {
-    const ids = new Set();
+    const results = [];
+    const seen = new Set();
     const patterns = [
-      /arxiv\.org\/abs\/(\d{4}\.\d{4,5})/gi,
-      /arxiv\.org\/pdf\/(\d{4}\.\d{4,5})/gi,
-      /arxiv:(\d{4}\.\d{4,5})/gi,
+      /arxiv\.org\/abs\/(\d{4}\.\d{4,5}(?:v\d+)?)/gi,
+      /arxiv\.org\/pdf\/(\d{4}\.\d{4,5}(?:v\d+)?)/gi,
+      /arxiv:(\d{4}\.\d{4,5}(?:v\d+)?)/gi,
     ];
 
     const content = html + ' ' + text;
     for (const pattern of patterns) {
       let match;
       while ((match = pattern.exec(content)) !== null) {
-        const id = match[1] || match[0];
-        if (/^\d{4}\.\d{4,5}$/.test(id)) {
-          ids.add(id);
+        const raw = match[1] || match[0];
+        const parsed = this.parseArxivId(raw);
+        if (parsed) {
+          const key = `${parsed.arxiv_id}|${parsed.arxiv_version || ''}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            results.push(parsed);
+          }
         }
       }
     }
-    return Array.from(ids);
+    return results;
   }
 
   static async parse(stream) {
@@ -224,32 +239,46 @@ class EmailSyncService {
         emailArxivMap[email.uid] = email.arxivIds;
       }
 
-      const allArxivIds = new Set();
+      const allArxivIds = [];
+      const seen = new Set();
       for (const email of emails) {
-        for (const id of email.arxivIds) {
-          allArxivIds.add(id);
+        for (const item of email.arxivIds) {
+          const key = `${item.arxiv_id}|${item.arxiv_version || ''}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            allArxivIds.push(item);
+          }
         }
       }
 
-      console.log(`[EmailSync] Found ${allArxivIds.size} unique arXiv IDs`);
+      console.log(`[EmailSync] Found ${allArxivIds.length} unique arXiv IDs`);
 
-      for (const arxivId of allArxivIds) {
-        const existing = db.queryOne('SELECT id FROM papers WHERE arxiv_id = ?', [arxivId]);
+      for (const item of allArxivIds) {
+        const existing = db.queryOne(
+          'SELECT id FROM papers WHERE arxiv_id = ? AND (arxiv_version = ? OR (arxiv_version IS NULL AND ? IS NULL))',
+          [item.arxiv_id, item.arxiv_version, item.arxiv_version]
+        );
         if (existing) {
           continue;
         }
 
         db.runQuery(`
-          INSERT INTO papers (arxiv_id, priority, status, source_type, title)
-          VALUES (?, ?, ?, ?, ?)
-        `, [arxivId, 3, 'unread', 'paper', `arXiv:${arxivId}`]);
-        
+          INSERT INTO papers (arxiv_id, arxiv_version, priority, status, source_type, title)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [item.arxiv_id, item.arxiv_version, 3, 'unread', 'paper', `arXiv:${item.arxiv_id}${item.arxiv_version || ''}`]);
+
         syncStatus.papersImported++;
       }
 
       const processedUids = [];
       for (const [uid, arxivIds] of Object.entries(emailArxivMap)) {
-        const allImported = arxivIds.every(id => !db.queryOne('SELECT id FROM papers WHERE arxiv_id = ? AND title LIKE ?', [id, 'arXiv:%']));
+        const allImported = arxivIds.every(item => {
+          const existing = db.queryOne(
+            'SELECT id FROM papers WHERE arxiv_id = ? AND (arxiv_version = ? OR (arxiv_version IS NULL AND ? IS NULL))',
+            [item.arxiv_id, item.arxiv_version, item.arxiv_version]
+          );
+          return !existing;
+        });
         if (allImported) {
           processedUids.push(uid);
         }

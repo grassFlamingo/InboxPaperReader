@@ -230,6 +230,10 @@ static parseOpenAlexResponse(data, arxivId) {
         return null;
       }
 
+      const idField = extract('id');
+      const versionMatch = idField.match(/\/(abs|pdf)\/(\d+\.\d+v\d+)$/);
+      const arxivVersion = versionMatch ? versionMatch[2].replace(/^(\d+\.\d+)(v\d+)$/, '$2') : null;
+
       const published = extract('published');
       const pdfLink = `https://arxiv.org/pdf/${arxivId}`;
       const absLink = `https://arxiv.org/abs/${arxivId}`;
@@ -241,6 +245,7 @@ static parseOpenAlexResponse(data, arxivId) {
         source: 'arXiv',
         source_url: absLink,
         arxiv_id: arxivId,
+        arxiv_version: arxivVersion,
         published,
         pdfLink,
       };
@@ -293,10 +298,10 @@ class MetadataFetchService extends BackgroundService {
         if (metadata) {
           console.debug(`[MetadataFetchService] Got metadata for #${paper.id}: title="${metadata.title}", authors="${metadata.authors?.substring(0, 50)}..."`);
           db.runQuery(`
-            UPDATE papers SET title = ?, authors = ?, abstract = ?, source = ?, source_url = ?
+            UPDATE papers SET title = ?, authors = ?, abstract = ?, source = ?, source_url = ?, arxiv_version = ?
             WHERE id = ?
-          `, [metadata.title, metadata.authors, metadata.abstract, metadata.source, metadata.source_url, paper.id]);
-          console.debug(`[MetadataFetchService] Updated paper #${paper.id} in database`);
+          `, [metadata.title, metadata.authors, metadata.abstract, metadata.source, metadata.source_url, metadata.arxiv_version, paper.id]);
+          console.debug(`[MetadataFetchService] Updated paper #${paper.id} in database (version: ${metadata.arxiv_version})`);
           this.status.processed++;
         } else {
           console.debug(`[MetadataFetchService] No metadata found for #${paper.id}`);
