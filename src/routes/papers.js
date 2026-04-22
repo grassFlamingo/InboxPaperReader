@@ -103,8 +103,15 @@ function setupPaperRoutes(app) {
   // DELETE /api/papers/:id
   app.delete('/api/papers/:id', (req, res) => {
     const { id } = req.params;
-    db.runQuery('DELETE FROM papers WHERE id = ?', [id]);
-    res.json({ id, message: 'deleted' });
+    try {
+      db.runQuery('DELETE FROM cached_papers WHERE paper_id = ?', [id]);
+      db.runQuery('DELETE FROM tech_terms WHERE source_paper_id = ?', [id]);
+      db.runQuery('DELETE FROM papers WHERE id = ?', [id]);
+      res.json({ id, message: 'deleted' });
+    } catch (e) {
+      console.error('[Papers] Delete error:', e.message);
+      res.status(500).json({ error: e.message });
+    }
   });
 
   // GET /api/papers/:id/markdown - Get markdown content
