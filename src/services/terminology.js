@@ -16,11 +16,9 @@ class TerminologyService extends BackgroundService {
   async hasPending() {
     const papers = db.queryAll(`
       SELECT p.id FROM papers p
-      LEFT JOIN tech_terms t ON t.source_paper_id = p.id
       WHERE p.abstract IS NOT NULL AND p.abstract != ''
       AND LENGTH(p.abstract) > 100
-      GROUP BY p.id
-      HAVING COUNT(t.id) < 3
+      AND NOT EXISTS (SELECT 1 FROM paper_terms pt WHERE pt.paper_id = p.id)
       LIMIT 1
     `);
     return papers.length > 0;
@@ -30,11 +28,9 @@ class TerminologyService extends BackgroundService {
     const papers = db.queryAll(`
       SELECT p.id, p.title, p.abstract, p.category
       FROM papers p
-      LEFT JOIN tech_terms t ON t.source_paper_id = p.id
       WHERE p.abstract IS NOT NULL AND p.abstract != ''
       AND LENGTH(p.abstract) > 100
-      GROUP BY p.id
-      HAVING COUNT(t.id) < 3
+      AND NOT EXISTS (SELECT 1 FROM paper_terms pt WHERE pt.paper_id = p.id)
       ORDER BY p.priority DESC, p.id DESC
       LIMIT 30
     `);
@@ -160,112 +156,142 @@ class TerminologyMergeService extends BackgroundService {
       intervalMs: options.intervalMs || 7200000,
       initialDelayMs: options.initialDelayMs || config.BG_WORKER?.DELAY_MS + 35000,
     });
-    this.normalizeMap = new Map();
   }
 
-  _initNormalizeMap() {
-    this.normalizeMap = new Map([
-      ['machine learning', 'ML'],
-      ['deep learning', 'DL'],
-      ['neural network', 'NN'],
-      ['convolutional neural network', 'CNN'],
-      ['recurrent neural network', 'RNN'],
-      ['transformer', 'transformer'],
-      ['attention', 'attention'],
-      ['bert', 'BERT'],
-      ['gpt', 'GPT'],
-      ['language model', 'LM'],
-    ]);
+  _isCompoundPhrase(termEn) {
+    if (!termEn) return false;
+    const cleaned = termEn.replace(/[()]/g, ' ').trim();
+    const words = cleaned.split(/\s+/).filter(Boolean);
+    if (words.length >= 4) return true;
+    const compoundPattern = /^(large |multi-|multi |speech |spoken |visual |audio |video |cross-|long-|open-|zero-|-based |-as-a-|-as-a |-to-|-with |for |with |of |and )/i;
+    if (compoundPattern.test(cleaned)) return true;
+    const abbrev = /^[A-Z]{2,4}$/.test(termEn);
+    if (abbrev) return false;
+    return false;
   }
 
-  _normalize(term) {
-    if (!term) return '';
-    return term.toLowerCase().replace(/[^a-z0-9]/g, '').trim();
+  _normalizeZh(termZh) {
+    if (!termZh) return '';
+    return termZh.replace(/[（）()「」『』【】\[\]]/g, '').replace(/[-－]/g, '').replace(/[型模型模块]/g, '').trim();
   }
 
-  async execute() {
-    this._initNormalizeMap();
-    console.log(`[${this.label}] Starting merge...`);
-
-    const allTerms = db.queryAll(`SELECT DISTINCT term_en FROM tech_terms WHERE verified = 1`);
-    const seen = new Map();
-
-    for (const row of allTerms) {
-      if (!row.term_en) continue;
-      const normalized = this._normalize(row.term_en);
-      if (seen.has(normalized)) {
-        const origId = seen.get(normalized);
-        const target = db.queryOne(`SELECT id, term_zh FROM tech_terms WHERE id = ?`, [origId]);
-        const source = db.queryOne(`SELECT term_zh, use_count FROM tech_terms WHERE term_en = ?`, [row.term_en]);
-
-        if (target && source && target.term_zh === source.term_zh) {
-          db.runQuery(`UPDATE tech_terms SET use_count = use_count + ? WHERE id = ?`, [source.use_count, origId]);
-          db.runQuery(`DELETE FROM tech_terms WHERE term_en = ?`, [row.term_en]);
-          this.status.processed++;
-        }
-      } else {
-        seen.set(normalized, row.term_en);
-      }
-    }
-
-    const similarGroups = this._findSimilarTerms();
-    for (const group of similarGroups) {
-      if (group.length < 2) continue;
-      const keepTerm = group.reduce((a, b) => (b.use_count > a.use_count ? b : a));
-      for (const t of group) {
-        if (t.id === keepTerm.id) continue;
-        const result = db.queryOne(`SELECT term_zh FROM tech_terms WHERE id = ?`, [keepTerm.id]);
-        const source = db.queryOne(`SELECT term_zh, use_count FROM tech_terms WHERE id = ?`, [t.id]);
-        if (result && source) {
-          db.runQuery(`UPDATE tech_terms SET term_en = ?, use_count = use_count + ? WHERE id = ?`, [keepTerm.term_en, source.use_count, keepTerm.id]);
-          db.runQuery(`DELETE FROM tech_terms WHERE id = ?`, [t.id]);
-          this.status.processed++;
-        }
-      }
-    }
-
-    console.log(`[${this.label}] Done: merged ${this.status.processed}, ${this.status.errors} errors`);
+  _normalizeEn(termEn) {
+    if (!termEn) return '';
+    return termEn.replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').toLowerCase().trim();
   }
 
-  _findSimilarTerms() {
-    const groups = [];
-    const allTerms = db.queryAll(`SELECT id, term_en, use_count FROM tech_terms WHERE verified = 1 ORDER BY use_count DESC`);
-
-    const checked = new Set();
-    for (const t1 of allTerms) {
-      if (checked.has(t1.id)) continue;
-
-      const group = [t1];
-      checked.add(t1.id);
-
-      for (const t2 of allTerms) {
-        if (checked.has(t2.id)) continue;
-        if (this._isSimilar(t1.term_en, t2.term_en)) {
-          group.push(t2);
-          checked.add(t2.id);
-        }
-      }
-
-      if (group.length > 1) groups.push(group);
-    }
-
-    return groups;
-  }
-
-  _isSimilar(a, b) {
+  _isEnSimilar(a, b) {
     if (!a || !b) return false;
-    const normA = this._normalize(a);
-    const normB = this._normalize(b);
+    const normA = this._normalizeEn(a);
+    const normB = this._normalizeEn(b);
     if (normA === normB) return true;
-    if (normA.includes(normB) || normB.includes(normA)) return true;
-    const lenDiff = Math.abs(normA.length - normB.length);
-    if (lenDiff > 3) return false;
+    if (normA.startsWith(normB) || normB.startsWith(normA)) return true;
+    if (Math.abs(normA.length - normB.length) > 4) return false;
     let diff = 0;
     for (let i = 0; i < Math.min(normA.length, normB.length); i++) {
       if (normA[i] !== normB[i]) diff++;
       if (diff > 2) return false;
     }
-    return true;
+    return diff <= 1;
+  }
+
+  _mergeGroup(group) {
+    const winner = group[0];
+    const totalUseCount = group.reduce((sum, t) => sum + t.use_count, 0);
+    db.runQuery(`UPDATE tech_terms SET use_count = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [totalUseCount, winner.id]);
+    for (const t of group) {
+      if (t.id === winner.id) continue;
+      db.runQuery(`DELETE FROM tech_terms WHERE id = ?`, [t.id]);
+    }
+  }
+
+  _findPhase1Groups() {
+    const rows = db.queryAll(`
+      SELECT term_zh, GROUP_CONCAT(id, ',') as ids
+      FROM tech_terms
+      WHERE term_zh IS NOT NULL AND term_zh != ''
+      GROUP BY term_zh
+      HAVING COUNT(*) > 1
+      ORDER BY COUNT(*) DESC
+    `);
+    return rows.map(row => {
+      const ids = row.ids.split(',').filter(Boolean).map(Number);
+      return db.queryAll(
+        `SELECT id, term_en, term_zh, use_count FROM tech_terms WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY use_count DESC`,
+        ids
+      );
+    });
+  }
+
+  _findPhase2Groups() {
+    const allTerms = db.queryAll(`
+      SELECT id, term_en, term_zh, use_count
+      FROM tech_terms
+      WHERE term_zh IS NOT NULL AND term_zh != ''
+    `);
+
+    const zhGroups = new Map();
+    for (const t of allTerms) {
+      const nz = this._normalizeZh(t.term_zh);
+      if (!zhGroups.has(nz)) zhGroups.set(nz, []);
+      zhGroups.get(nz).push(t);
+    }
+
+    const groups = [];
+    const used = new Set();
+
+    for (const [nz, terms] of zhGroups) {
+      if (terms.length < 2) continue;
+
+      const eligible = terms.filter(t => !this._isCompoundPhrase(t.term_en));
+      if (eligible.length < 2) continue;
+
+      const checked = new Set();
+      for (const t1 of eligible) {
+        if (checked.has(t1.id)) continue;
+
+        const group = [t1];
+        checked.add(t1.id);
+
+        for (const t2 of eligible) {
+          if (checked.has(t2.id)) continue;
+          if (t1.term_zh === t2.term_zh) continue;
+          if (this._isEnSimilar(t1.term_en, t2.term_en)) {
+            group.push(t2);
+            checked.add(t2.id);
+          }
+        }
+
+        if (group.length > 1) {
+          group.forEach(t => used.add(t.id));
+          groups.push(group);
+        }
+      }
+    }
+
+    return groups;
+  }
+
+  async execute() {
+    console.log(`[${this.label}] Starting merge...`);
+
+    const phase1 = this._findPhase1Groups();
+    console.log(`[${this.label}] Phase 1: ${phase1.length} groups (exact zh)`);
+    for (const group of phase1) {
+      if (group.length < 2) continue;
+      this._mergeGroup(group);
+      this.status.processed += group.length - 1;
+    }
+
+    const phase2 = this._findPhase2Groups();
+    console.log(`[${this.label}] Phase 2: ${phase2.length} groups (normalized zh + en)`);
+    for (const group of phase2) {
+      if (group.length < 2) continue;
+      this._mergeGroup(group);
+      this.status.processed += group.length - 1;
+    }
+
+    console.log(`[${this.label}] Done: merged ${this.status.processed}, ${this.status.errors} errors`);
   }
 }
 

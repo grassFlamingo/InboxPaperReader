@@ -718,10 +718,17 @@ const TechTermsApp = {
     const term_zh = document.getElementById('techTermsZh').value.trim();
     const context = document.getElementById('techTermsContext').value.trim();
     if (!term_en || !term_zh) return alert('请填写英文和中文术语');
-    if (id) {
-      await PaperAPI.updateTechTerm(id, { term_en, term_zh, context });
-    } else {
-      await PaperAPI.addTechTerm({ term_en, term_zh, context });
+    try {
+      if (id) {
+        const result = await PaperAPI.updateTechTerm(id, { term_en, term_zh, context });
+        if (result.message === 'merged') {
+          alert(`已合并到现有术语 (ID: ${result.merged_into})，use_count 已累加`);
+        }
+      } else {
+        await PaperAPI.addTechTerm({ term_en, term_zh, context });
+      }
+    } catch (e) {
+      return alert('保存失败: ' + e.message);
     }
     this.closeModal();
     await this.render();

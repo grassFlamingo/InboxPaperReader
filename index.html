@@ -112,11 +112,11 @@
         <div class="modal">
           <h2 id="techTermsModalTitle">添加术语</h2>
           <input type="hidden" id="techTermsEditId">
-          <label>英文术语 *</label>
+          <label>英文术语 * <span style="font-weight:normal;color:var(--muted);font-size:.75rem">（相同英文+中文将自动合并）</span></label>
           <input type="text" id="techTermsEn" placeholder="如 transformer">
-          <label>中文翻译 *</label>
+          <label>中文翻译 * <span style="font-weight:normal;color:var(--muted);font-size:.75rem">（相同英文+中文将自动合并）</span></label>
           <input type="text" id="techTermsZh" placeholder="如 Transformer/变换器">
-          <label>上下文（可选，用于区分不同翻译）</label>
+          <label>上下文（可选，用于区分同一术语的不同翻译）<span style="font-weight:normal;color:var(--muted);font-size:.75rem">如: 视觉模型,推荐系统</span></label>
           <input type="text" id="techTermsContext" placeholder="如 视觉模型,推荐系统">
           <div class="modal-actions">
             <button class="btn" onclick="TechTermsApp.closeModal()">取消</button>

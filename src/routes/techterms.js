@@ -79,12 +79,18 @@ function upsertTechTerm(termEn, termZh, context, sourcePaperId) {
   
   if (existing) {
     db.runQuery(`UPDATE tech_terms SET use_count = use_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [existing.id]);
+    if (sourcePaperId) {
+      db.runQuery(`INSERT OR IGNORE INTO paper_terms (paper_id, term_id) VALUES (?, ?)`, [sourcePaperId, existing.id]);
+    }
     return { id: existing.id, action: 'incremented' };
   } else {
     const lastId = db.runQuery(`
       INSERT INTO tech_terms (term_en, term_zh, context, source_paper_id, use_count, verified)
       VALUES (?, ?, ?, ?, 1, 0)
     `, [termEn, termZh, context || '', sourcePaperId || null]);
+    if (sourcePaperId) {
+      db.runQuery(`INSERT OR IGNORE INTO paper_terms (paper_id, term_id) VALUES (?, ?)`, [sourcePaperId, lastId]);
+    }
     return { id: lastId, action: 'inserted' };
   }
 }
@@ -170,8 +176,32 @@ function setupTechTermsRoutes(app) {
   app.put('/api/tech-terms/:id', (req, res) => {
     const { id } = req.params;
     const { term_en, term_zh, context, verified } = req.body;
-    const sets = [], vals = [];
     
+    const current = db.queryOne('SELECT * FROM tech_terms WHERE id = ?', [id]);
+    if (!current) {
+      return res.status(404).json({ error: 'term not found' });
+    }
+    
+    const newTermEn = term_en || current.term_en;
+    const newTermZh = term_zh || current.term_zh;
+    const newContext = (context !== undefined ? context : current.context) || '';
+    
+    const existing = db.queryOne(`
+      SELECT id, use_count FROM tech_terms 
+      WHERE term_en = ? AND term_zh = ? AND context = ?
+    `, [newTermEn, newTermZh, newContext]);
+    
+    if (existing && existing.id !== Number(id)) {
+      db.runQuery(`
+        UPDATE tech_terms 
+        SET use_count = use_count + ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `, [current.use_count, existing.id]);
+      db.runQuery('DELETE FROM tech_terms WHERE id = ?', [id]);
+      return res.json({ message: 'merged', merged_into: existing.id });
+    }
+    
+    const sets = [], vals = [];
     if (term_en) { sets.push('term_en = ?'); vals.push(term_en); }
     if (term_zh) { sets.push('term_zh = ?'); vals.push(term_zh); }
     if (context !== undefined) { sets.push('context = ?'); vals.push(context || ''); }
