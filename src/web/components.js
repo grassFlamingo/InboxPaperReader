@@ -12,6 +12,37 @@ function renderMarkdown(text) {
   return text;
 }
 
+function renderLatex(text) {
+  if (!text || typeof katex === 'undefined') return text;
+  return text.replace(/\$\$(.+?)\$\$/g, (_, tex) => {
+    try { return katex.renderToString(tex.trim(), { displayMode: true }); } 
+    catch (e) { return _; }
+  }).replace(/\$(.+?)\$/g, (_, tex) => {
+    try { return katex.renderToString(tex.trim(), { displayMode: false }); } 
+    catch (e) { return _; }
+  });
+}
+
+async function renderMarkdownAsync(text) {
+  if (!text) return '';
+  let html = text;
+  if (typeof marked !== 'undefined') {
+    html = marked.parse(text);
+  }
+  return renderLatex(html);
+}
+
+async function typesetMathJax(elementOrSelector) {
+  const el = typeof elementOrSelector === 'string' 
+    ? document.querySelector(elementOrSelector) 
+    : elementOrSelector;
+  if (!el || typeof katex === 'undefined') return;
+  const text = el.innerHTML;
+  if (text) {
+    el.innerHTML = renderLatex(text);
+  }
+}
+
 function paperUrl(p) {
   if (p.cached_file_path && p.cached_file_path.length > 10) return `/api/papers/${p.id}/file`;
   if (p.arxiv_id) return `https://arxiv.org/pdf/${p.arxiv_id}`;
@@ -272,7 +303,8 @@ window.RenderUtils = {
   esc, paperUrl, renderStars, renderTags, renderAiCatTag,
   renderSourceBadge, renderUserRating, renderAiSummary, renderAiStars,
   renderCard, renderCategoryHeader, renderStats, renderCategorySelect, renderPaperList,
-  renderMarkdown, renderBgStatus, formatTimeAgo,
+  renderMarkdown, renderMarkdownAsync, renderLatex, renderBgStatus, formatTimeAgo,
+  typesetMathJax,
   SOURCE_TYPE_NAMES, STATUS_ORDER, STATUS_NEXT, STATUS_LABELS,
   WEB_CONTENT_TYPES
 };

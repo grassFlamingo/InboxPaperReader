@@ -89,6 +89,7 @@ const PaperApp = {
     }
     if (!displayPapers.length) {
       document.getElementById('paperList').innerHTML = '<div class="empty">没有匹配的论文</div>';
+      RenderUtils.typesetMathJax('#paperList');
       return;
     }
     displayPapers.sort((a, b) => {
@@ -99,6 +100,7 @@ const PaperApp = {
     });
     document.getElementById('appContainer').className = 'paper-container grid-mode';
     document.getElementById('paperList').innerHTML = `<div class="paper-grid">${RenderUtils.renderPaperList(displayPapers, { grid: true })}</div>`;
+    RenderUtils.typesetMathJax('#paperList');
     this._observeLoadMore();
   },
 
@@ -464,7 +466,7 @@ const PaperApp = {
     if (!el) return;
     const p = await PaperAPI.getPaper(id);
     if (p?.notes) {
-      el.innerHTML = RenderUtils.renderMarkdown(p.notes) + 
+      el.innerHTML = await RenderUtils.renderMarkdownAsync(p.notes) + 
         `<div class="notes-btns" style="margin-top:8px">
           <button class="btn" onclick="PaperApp.editNotes(${id})">编辑</button>
           <button class="btn" onclick="this.parentElement.style.display='none'">取消</button>
@@ -518,11 +520,12 @@ const PaperApp = {
       const d = await PaperAPI.getMarkdown(id);
       const p = this.papers.find(p => p.id === id);
       if (!p) return;
-      document.getElementById('readerTitle').textContent = p.title;
+document.getElementById('readerTitle').textContent = p.title;
       if (d.markdown && d.markdown.length > 50) {
         document.getElementById('readerContent').innerHTML = marked.parse(d.markdown);
+        RenderUtils.typesetMathJax('#readerContent');
       } else {
-        document.getElementById('readerContent').innerHTML = '<div style="color:var(--muted)">暂无 Markdown 内容，正在转换...</div>';
+        document.getElementById('readerContent').innerHTML = '<div style="color:var(--muted)">暂无 Markdown 内容正在转换...</div>';
       }
       document.getElementById('readerModal').classList.add('active');
     } catch(e) {
