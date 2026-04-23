@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>📚 论文待读列表</title>
+  <title>论文待读</title>
   <link rel="stylesheet" href="static/css/app.css">
 </head>
 
@@ -13,7 +13,7 @@
   <div id="appContainer" class="paper-container">
     <div class="header-main">
       <div>
-        <h1>论文待读列表</h1>
+        <h1>论文待读</h1>
         <p class="subtitle" id="subtitle"></p>
       </div>
       <div class="stats" id="stats"></div>
@@ -64,10 +64,7 @@
         <option value="title_asc">按标题 ↑</option>
       </select>
       <input type="text" id="searchBox" placeholder="搜索标题/作者/标签..." oninput="PaperApp.resetAndReload()">
-      <select id="layoutMode" onchange="PaperApp.resetAndReload()" style="width:auto">
-        <option value="grid" selected>网格</option>
-        <option value="list">列表</option>
-      </select>
+      
     </div>
 
     <div id="paperList"></div>

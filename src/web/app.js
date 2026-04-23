@@ -77,7 +77,6 @@ const PaperApp = {
 
   _updatePaperListDOM() {
     const sourceType = document.getElementById('filterSourceType').value;
-    const layoutMode = document.getElementById('layoutMode').value;
     let displayPapers = this.papers;
     if (sourceType) {
       displayPapers = displayPapers.filter(p => (p.source_type || 'paper') === sourceType);
@@ -92,40 +91,8 @@ const PaperApp = {
       if (sa !== sb) return sa - sb;
       return 0;
     });
-    if (layoutMode === 'grid') {
-      document.getElementById('appContainer').className = 'paper-container grid-mode';
-      document.getElementById('paperList').innerHTML = `<div class="paper-grid">${RenderUtils.renderPaperList(displayPapers, { grid: true })}</div>`;
-      this._observeLoadMore();
-      return;
-    }
-    document.getElementById('appContainer').className = 'paper-container';
-    const activeGroups = {}, doneGroups = {};
-    displayPapers.forEach(p => {
-      const target = p.status === 'done' ? doneGroups : activeGroups;
-      if (!target[p.category]) target[p.category] = [];
-      target[p.category].push(p);
-    });
-    let html = '';
-    let idx = 0;
-    for (const [cat, items] of Object.entries(activeGroups)) {
-      html += RenderUtils.renderCategoryHeader(cat, items.length);
-      items.forEach(p => { html += RenderUtils.renderCard(p, ++idx); });
-    }
-    const donePapers = Object.values(doneGroups).flat();
-    if (donePapers.length > 0) {
-      html += `<div class="done-section" id="doneSection">
-        <div class="done-toggle" onclick="document.getElementById('doneSection').classList.toggle('open')">
-          <span class="arrow">▶</span>
-          <span class="done-info">已归档 · <span class="done-count">${donePapers.length}</span> 篇</span>
-        </div>
-        <div class="papers-wrap">`;
-      for (const [cat, items] of Object.entries(doneGroups)) {
-        html += RenderUtils.renderCategoryHeader(cat, items.length);
-        items.forEach(p => { html += RenderUtils.renderCard(p, ++idx); });
-      }
-      html += `</div></div>`;
-    }
-    document.getElementById('paperList').innerHTML = html;
+    document.getElementById('appContainer').className = 'paper-container grid-mode';
+    document.getElementById('paperList').innerHTML = `<div class="paper-grid">${RenderUtils.renderPaperList(displayPapers, { grid: true })}</div>`;
     this._observeLoadMore();
   },
 
@@ -146,9 +113,8 @@ const PaperApp = {
     this.papers[idx] = updated;
     const card = document.querySelector(`.paper[data-id="${updated.id}"]`);
     if (!card) return;
-    const gridLayout = document.getElementById('layoutMode')?.value === 'grid';
     const renderIdx = Array.from(card.parentElement.children).indexOf(card) + 1;
-    card.outerHTML = RenderUtils.renderCard(updated, renderIdx, { grid: gridLayout, showNum: true });
+    card.outerHTML = RenderUtils.renderCard(updated, renderIdx, { grid: true, showNum: true });
   },
 
   _removePaperCard(id) {
@@ -333,7 +299,7 @@ const PaperApp = {
     res.style.display = 'none';
     res.innerHTML = '';
     document.getElementById('importUrlSubmit').disabled = false;
-    document.getElementById('importUrlSubmit').textContent = '🤖 AI 导入';
+    document.getElementById('importUrlSubmit').textContent = 'AI 导入';
     document.getElementById('importUrlModal').classList.add('active');
     setTimeout(() => document.getElementById('importUrl').focus(), 100);
   },
@@ -360,17 +326,17 @@ const PaperApp = {
         document.getElementById('importNotes').value.trim()
       );
       if (d.id) {
-        const typeNames = { paper:'📄 论文', wechat_article:'💬 微信文章', twitter_thread:'🐦 推文', blog_post:'📝 博客', video:'🎬 视频', other:'🔗 链接' };
+        const typeNames = { paper:'论文', wechat_article:'微信文章', blog_post:'博客', video:'视频', other:'链接' };
         res.style.display = 'block';
         res.style.background = 'rgba(52,211,153,.07)';
         res.style.borderColor = 'rgba(52,211,153,.3)';
         res.innerHTML = `
-          <div style="color:var(--green);font-weight:600;margin-bottom:6px">✅ 导入成功 #${d.id}</div>
+          <div style="color:var(--green);font-weight:600;margin-bottom:6px">导入成功 #${d.id}</div>
           <div style="margin-bottom:3px"><b>${RenderUtils.esc(d.title)}</b></div>
           <div style="color:var(--muted);font-size:.78rem;margin-bottom:3px">${typeNames[d.source_type]||d.source_type} · ${RenderUtils.esc(d.category)} · AI ⭐${d.stars}</div>
           <div style="color:#b8b8c0;font-size:.78rem">${RenderUtils.esc(d.abstract_preview||'')}</div>
         `;
-        btn.textContent = '✅ 已导入，再导入一条';
+        btn.textContent = '已导入，再导入一条';
         btn.disabled = false;
         this.refreshInPlace();
         this.loadCategories();
@@ -378,8 +344,8 @@ const PaperApp = {
         res.style.display = 'block';
         res.style.background = 'rgba(248,113,113,.07)';
         res.style.borderColor = 'rgba(248,113,113,.3)';
-        res.innerHTML = `<div style="color:var(--red)">❌ 导入失败: ${RenderUtils.esc(d.error || JSON.stringify(d))}</div>`;
-        btn.textContent = '🤖 AI 导入';
+        res.innerHTML = `<div style="color:var(--red)">导入失败: ${RenderUtils.esc(d.error || JSON.stringify(d))}</div>`;
+        btn.textContent = 'AI 导入';
         btn.disabled = false;
       }
     } catch(e) {
@@ -387,7 +353,7 @@ const PaperApp = {
       res.style.background = 'rgba(248,113,113,.07)';
       res.style.borderColor = 'rgba(248,113,113,.3)';
       res.innerHTML = `<div style="color:var(--red)">❌ 网络错误: ${RenderUtils.esc(String(e))}</div>`;
-      btn.textContent = '🤖 AI 导入';
+      btn.textContent = 'AI 导入';
       btn.disabled = false;
     }
   },
