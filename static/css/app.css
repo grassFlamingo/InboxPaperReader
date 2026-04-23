@@ -91,6 +91,7 @@ h1 {
   cursor: pointer;
   font-size: 0.82rem;
   transition: all 0.15s;
+  margin: 4px;
 }
 
 .btn:hover {
@@ -131,6 +132,7 @@ h1 {
   cursor: pointer;
   user-select: none;
   transition: border-color .15s, background .15s;
+  margin: 4px;
 }
 
 .stat-item:hover {

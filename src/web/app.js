@@ -318,7 +318,7 @@ const PaperApp = {
 
   openImportUrlModal() {
     document.getElementById('importUrl').value = '';
-    document.getElementById('importPriority').value = '3';
+    document.getElementById('importPriority').value = '5';
     document.getElementById('importTags').value = '';
     document.getElementById('importNotes').value = '';
     const res = document.getElementById('importResult');
@@ -347,7 +347,7 @@ const PaperApp = {
     try {
       const d = await PaperAPI.importUrl(
         url,
-        parseInt(document.getElementById('importPriority').value) || 3,
+        parseInt(document.getElementById('importPriority').value) || 5,
         document.getElementById('importTags').value.trim(),
         document.getElementById('importNotes').value.trim()
       );

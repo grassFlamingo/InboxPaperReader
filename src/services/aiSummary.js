@@ -89,12 +89,37 @@ async _processPaper(paper, ctx) {
         for (const c of config.AI_CATEGORIES) {
           if (cat.toLowerCase().replace(' ', '').includes(c.toLowerCase().replace(' ', ''))) { cat = c; break; }
         }
+        const CAT_NORM = {
+          'Agent': 'Agent', 'Audio / 音频': '语音 / 音频', 'Benchmark / 软件工具': '评测 / Benchmark',
+          'Cybersecurity / Adversarial ML': '安全 / 对齐', 'Cross-Lingual / XAI': '安全 / 对齐',
+          'Dataset / Training': '数据与训练', 'Dialogue System': 'NLP / 语言理解', 'Diffusion / 生成': 'Diffusion / 生成',
+          'Event Extraction': 'NLP / 语言理解', 'Federated Learning': '高效计算 / 量化',
+          'Generative / Diffusion': 'Diffusion / 生成', 'Generative Modeling / Diffusion': 'Diffusion / 生成',
+          'Hyperspectral Image / Robustness': 'CV / 图像', 'KV Cache / Serving': 'KV Cache / Serving',
+          'Language Model / LLM': '模型架构', 'LLM + RL': 'LLM + RL', 'LLM / RL': 'LLM + RL',
+          'LLM / Transformer Architecture': '模型架构', 'Model Architecture': '模型架构',
+          'Multi-Modal / VLM': '多模态 / VLM', 'Multi-modal / VLM': '多模态 / VLM', 'MultiModal / VLM': '多模态 / VLM',
+          'Multilinguality / MT / XNLI': 'NLP / 语言理解', 'Multimodal / VLM': '多模态 / VLM',
+          'Music / 音乐AI, NLP / 语言理解': '语音 / 音频', 'Pre-training': '数据与训练',
+          'Retrieval / RAG': 'NLP / 语言理解', 'Retrieval-Augmented Generation (RAG) / Information Retrieval': 'NLP / 语言理解',
+          'Robotics / VLA': '机器人 / VLA', 'Security / Alignment': '安全 / 对齐', 'Security / 对齐': '安全 / 对齐',
+          'Serving': 'LLM 推理优化', 'Serving / LLM 推理优化': 'LLM 推理优化', 'Sign Language Generation': '语音 / 音频',
+          'Speech / Audio': '语音 / 音频', 'Time Series / 序列建模': 'NLP / 语言理解', 'Time Series Forecasting': 'NLP / 语言理解',
+          'Tokenizer / NLP': 'NLP / 语言理解', 'VLA': '机器人 / VLA', 'VLM': '多模态 / VLM',
+          'VLM / Multi-modal': '多模态 / VLM', 'Vision / CV': 'CV / 图像', 'Vision / VLM': '多模态 / VLM',
+          'Vision Language Model / VLM': '多模态 / VLM', 'Vision-Language Model / VLM': '多模态 / VLM',
+          'Vision-Language Model / Multimodal': '多模态 / VLM', 'Vision-Language Model / Security': '安全 / 对齐',
+          'Vulnerability Detection': '安全 / 对齐', '医学图像处理 / 医学VLM': '多模态 / VLM',
+          '推理与思维链': 'LLM 推理与思维链', '推荐系统 / RS': '其他', '推荐系统 / 序列推荐': '其他',
+          '理论研究': '其他', '高效计算 / 量化': '高效计算 / 量化',
+        };
+        if (CAT_NORM[cat]) cat = CAT_NORM[cat];
         if (!aiCategory) aiCategory = cat;
         if (!stars) stars = Math.max(1, Math.min(5, parseInt(data.stars || 3)));
       }
     }
 
-    db.runQuery('UPDATE papers SET summary = ?, ai_category = ?, stars = ? WHERE id = ?', [summary, aiCategory, stars, paper.id]);
+    db.runQuery('UPDATE papers SET summary = ?, ai_category = ?, stars = ?, category = ? WHERE id = ?', [summary, aiCategory, stars, aiCategory, paper.id]);
 
     const terms = await extractTechTermsFromText(paper.abstract, paper.id);
     for (const t of terms) {

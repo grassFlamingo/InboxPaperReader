@@ -20,7 +20,7 @@
       <div id="bgStatus" class="bg-status"></div>
       <div style="margin-left: auto;"></div>
       <div class="header-actions">
-        <button class="btn" onclick="PaperApp.redetectLayout()" style="border-color:var(--accent);color:var(--accent)">重检布局</button>
+        <!-- <button class="btn" onclick="PaperApp.redetectLayout()" style="border-color:var(--accent);color:var(--accent)">重检布局</button> -->
         <button class="btn" id="techTermsBtn" onclick="TechTermsApp.toggle()" style="border-color:#a78bfa;color:#a78bfa">术语表</button>
         <button class="btn" id="syncBtn" onclick="PaperApp.syncEmails()"
           style="border-color:var(--green);color:var(--green)">邮箱同步</button>
@@ -135,7 +135,7 @@
         <label>URL *</label>
         <input type="text" id="importUrl" placeholder="https://mp.weixin.qq.com/s/... 或 https://x.com/...">
         <label>优先级 (1-5)</label>
-        <input type="number" id="importPriority" min="1" max="5" value="3">
+        <input type="number" id="importPriority" min="1" max="5" value="5">
         <label>补充标签（可选）</label>
         <input type="text" id="importTags" placeholder="tag1, tag2（AI 会自动生成，这里可补充）">
         <label>备注（可选）</label>
@@ -144,8 +144,8 @@
           style="display:none;margin-top:12px;padding:10px 12px;border-radius:6px;font-size:.82rem;border:1px solid var(--border)">
         </div>
         <div class="modal-actions">
-          <button class="btn" onclick="PaperApp.closeImportUrlModal()">取消</button>
           <button class="btn btn-primary" id="importUrlSubmit" onclick="PaperApp.doImportUrl()">AI 导入</button>
+          <button class="btn" onclick="PaperApp.closeImportUrlModal()">关闭</button>
         </div>
       </div>
     </div>
