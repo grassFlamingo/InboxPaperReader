@@ -2,11 +2,9 @@ const db = require('../db/database');
 const path = require('path');
 const fs = require('fs');
 const { fetchUrlText, detectSourceType } = require('../services/web');
-const { callLlm, cleanThinkTags } = require('../services/llm');
 const config = require('../../config');
 const emailSync = require('../services/email');
 const { startEmailSync, getSyncStatus } = require('../services/email');
-const { buildGlossary } = require('./techterms');
 const cacheService = require('../services/cache');
 const { CACHE_DIR, PDF_DIR } = require('../services/cache');
 
@@ -16,11 +14,14 @@ function getPreviewUrl(cachedPreviewPath, paperId) {
 }
 
 function setupPaperRoutes(app) {
-  // GET /api/papers/:id - Get single paper (must be before /api/papers to avoid "papers" being captured as :id)
+  // GET /api/papers/:id - Get single paper
   app.get('/api/papers/:id', (req, res) => {
     const { id } = req.params;
-    const row = db.queryOne('SELECT p.*, cp.file_path as cached_file_path, cp.preview_image as cached_preview_path, cp.layout_data FROM papers p LEFT JOIN cached_papers cp ON p.id = cp.paper_id WHERE p.id = ?', [id]);
+    const paperId = parseInt(id);
+    const row = db.queryOne('SELECT p.*, cp.file_path as cached_file_path, cp.preview_image as cached_preview_path, cp.layout_data FROM papers p LEFT JOIN cached_papers cp ON p.id = cp.paper_id WHERE p.id = ?', [paperId]);
     if (!row) return res.status(404).json({ error: 'not found' });
+    const authorRows = db.queryAll('SELECT author_name, author_order FROM paper_authors WHERE paper_id = ? ORDER BY author_order', [paperId]);
+    row.author_list = authorRows.map(a => a.author_name);
     row.cached_preview_path = getPreviewUrl(row.cached_preview_path, row.id);
     res.json(row);
   });
@@ -35,7 +36,13 @@ function setupPaperRoutes(app) {
 
     if (category) { query += ' AND p.category = ?'; countQuery += ' AND p.category = ?'; params.push(category); countParams.push(category); }
     if (status) { query += ' AND p.status = ?'; countQuery += ' AND p.status = ?'; params.push(status); countParams.push(status); }
-    if (q) { query += ' AND (p.title LIKE ? OR p.authors LIKE ? OR p.abstract LIKE ? OR p.tags LIKE ?)'; countQuery += ' AND (p.title LIKE ? OR p.authors LIKE ? OR p.abstract LIKE ? OR p.tags LIKE ?)'; const qparam = `%${q}%`; params.push(qparam, qparam, qparam, qparam); countParams.push(qparam, qparam, qparam, qparam); }
+    if (q) { 
+      const qpattern = `%${q}%`;
+      query += ' AND (p.title LIKE ? OR p.authors LIKE ? OR p.abstract LIKE ? OR p.tags LIKE ? OR p.arxiv_id LIKE ?)'; 
+      countQuery += ' AND (p.title LIKE ? OR p.authors LIKE ? OR p.abstract LIKE ? OR p.tags LIKE ? OR p.arxiv_id LIKE ?)'; 
+      params.push(qpattern, qpattern, qpattern, qpattern, qpattern); 
+      countParams.push(qpattern, qpattern, qpattern, qpattern, qpattern); 
+    }
     if (cached === 'cached') { query += ' AND cp.paper_id IS NOT NULL'; countQuery += ' AND p.id IN (SELECT paper_id FROM cached_papers)'; }
     else if (cached === 'uncached') { query += ' AND cp.paper_id IS NULL'; countQuery += ' AND p.id NOT IN (SELECT paper_id FROM cached_papers)'; }
 
@@ -56,10 +63,15 @@ function setupPaperRoutes(app) {
     query += ` LIMIT ${parsedLimit} OFFSET ${parsedOffset}`;
     const rows = db.queryAll(query, params);
 
-    const papers = rows.map(row => ({
-      ...row,
-      cached_preview_path: getPreviewUrl(row.cached_preview_path, row.id)
-    }));
+const papers = rows.map(row => {
+      const paperId = parseInt(row.id);
+      const authorRows = db.queryAll('SELECT author_name, author_order FROM paper_authors WHERE paper_id = ? ORDER BY author_order', [paperId]);
+      return {
+        ...row,
+        author_list: authorRows.map(a => a.author_name),
+        cached_preview_path: getPreviewUrl(row.cached_preview_path, row.id)
+      };
+    });
 
     res.json({ papers, total, offset: parsedOffset, limit: parsedLimit, hasMore: parsedOffset + rows.length < total });
   });
@@ -77,8 +89,11 @@ function setupPaperRoutes(app) {
   // GET /api/papers/:id - Get single paper
   app.get('/api/papers/:id', (req, res) => {
     const { id } = req.params;
-    const row = db.queryOne('SELECT p.*, cp.file_path as cached_file_path, cp.preview_image as cached_preview_path, cp.layout_data FROM papers p LEFT JOIN cached_papers cp ON p.id = cp.paper_id WHERE p.id = ?', [id]);
+    const paperId = parseInt(id);
+    const row = db.queryOne('SELECT p.*, cp.file_path as cached_file_path, cp.preview_image as cached_preview_path, cp.layout_data FROM papers p LEFT JOIN cached_papers cp ON p.id = cp.paper_id WHERE p.id = ?', [paperId]);
     if (!row) return res.status(404).json({ error: 'not found' });
+    const authorRows = db.queryAll('SELECT author_name, author_order FROM paper_authors WHERE paper_id = ? ORDER BY author_order', [paperId]);
+    row.author_list = authorRows.map(a => a.author_name);
     row.cached_preview_path = getPreviewUrl(row.cached_preview_path, row.id);
     res.json(row);
   });
@@ -140,59 +155,48 @@ function setupPaperRoutes(app) {
     res.json({ total, unread, reading, done, cached, cachedCompleted, cachedFailed, cachedDownloading });
   });
 
-  // POST /api/import-url - Import from URL with LLM extraction
+// POST /api/import-url - Import from URL (arXiv or general URL)
   app.post('/api/import-url', async (req, res) => {
     const { url, priority, category, tags, notes } = req.body || {};
     if (!url || !url.trim()) return res.status(400).json({ error: 'url is required' });
 
-    const sourceType = detectSourceType(url);
-    let pageText;
-    try { pageText = await fetchUrlText(url, 5000); } 
-    catch (e) { return res.status(502).json({ error: `Failed to fetch URL: ${e.message}` }); }
+    const taskManager = require('../services/taskManager');
 
-    if (!pageText || pageText.length < 50) {
-      return res.status(502).json({ error: 'Failed to fetch page content. Try using the abstract URL instead of PDF URL.' });
+    const arxivMatch = url.match(/arxiv\.(?:org|com)\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
+
+    if (arxivMatch) {
+      const arxivId = arxivMatch[1];
+      const arxivVersion = arxivMatch[2] || null;
+
+      const existing = db.queryOne('SELECT id, arxiv_id, arxiv_version FROM papers WHERE arxiv_id = ?', [arxivId]);
+      if (existing) {
+        if (!arxivVersion || existing.arxiv_version === arxivVersion) {
+          return res.status(409).json({ error: 'Paper already imported', id: existing.id });
+        }
+        const newVer = parseInt(arxivVersion.replace('v', '')) || 0;
+        const oldVer = parseInt(existing.arxiv_version?.replace('v', '')) || 0;
+        if (newVer <= oldVer) {
+          return res.status(409).json({ error: 'Paper already imported', id: existing.id });
+        }
+      }
+
+      const id = db.runQuery(`
+        INSERT INTO papers (title, source_url, arxiv_id, arxiv_version, source_type, category, priority, tags, notes, status)
+        VALUES (?, ?, ?, ?, 'paper', ?, ?, ?, ?, 'unread')
+      `, [url, url, arxivId, arxivVersion, category || '其他', priority ?? 3, tags || '', notes || '']);
+
+      setTimeout(() => taskManager.triggerRelatedTasks(), 1000);
+
+      return res.status(201).json({ id, status: 'queued', type: 'paper', message: 'arXiv paper queued for processing' });
     }
 
-    const sourceTypeNames = { 'paper': '论文', 'wechat_article': '微信文章', 'twitter_thread': '推文', 'blog_post': '博客', 'video': '视频', 'other': '文章' };
-    const systemPrompt = `你是一个信息提取助手，专门从${sourceTypeNames[sourceType] || '文章'}页面文本中提取关键信息。
-请从以下页面文本中提取信息，按 JSON 格式输出，字段说明：
-- title: 文章/推文/论文的完整标题（必填）
-- authors: 作者或发布者（多人用逗号分隔）
-- abstract: 核心内容摘要，200-400 字中文（必填）
-- category: 内容方向
-- tags: 3-6 个关键词，逗号分隔
-- stars_suggest: 推荐程度 1-5
-IMPORTANT: Do NOT use <think/> tags. Reply directly with JSON only.`;
+    const importId = db.runQuery(`
+      INSERT INTO url_imports (url, status) VALUES (?, 'pending')
+    `, [url]);
 
-    let extracted;
-    try {
-      const glossary = buildGlossary(pageText);
-      const llmRaw = await callLlm(systemPrompt, `URL: ${url}\n\n页面内容：\n${pageText}`, 500, glossary);
-      const jsonMatch = llmRaw.match(/\{[\s\S]+?\}(?=\s*$|\s*\n)/) || llmRaw.match(/\{[\s\S]+\}/);
-      if (!jsonMatch) return res.status(500).json({ error: 'LLM did not return valid JSON', raw: llmRaw.substring(0, 300) });
-      extracted = JSON.parse(jsonMatch[0]);
-    } catch (e) {
-      return res.status(500).json({ error: `LLM extraction failed: ${e.message}` });
-    }
+    setTimeout(() => taskManager.runTask('urlImport'), 1000);
 
-    const finalCategory = category || extracted.category || '其他';
-    const finalTags = tags || extracted.tags || '';
-    const finalPriority = priority ?? 3;
-    const starsAi = Math.max(1, Math.min(5, parseInt(extracted.stars_suggest || 3)));
-    const source = config.SOURCE_NAME_MAP[sourceType] || 'Web';
-
-    let arxivId = '';
-    const arxivMatch = url.match(/arxiv\.org\/(?:abs|pdf)\/(\d{4}\.\d{4,5})/);
-    if (arxivMatch) arxivId = arxivMatch[1];
-
-    const lastId = db.runQuery(`
-      INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, category, priority, status, tags, notes, source_type, stars)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [extracted.title || url, extracted.authors || '', extracted.abstract || '', source, url, arxivId, finalCategory, finalPriority, 'unread', finalTags, notes || '', sourceType, starsAi]);
-
-    const abstract = extracted.abstract || '';
-    res.status(201).json({ id: lastId, title: extracted.title, authors: extracted.authors, source_type: sourceType, category: finalCategory, stars: starsAi, abstract_preview: abstract.length > 100 ? abstract.substring(0, 100) + '...' : abstract, message: 'imported' });
+    return res.status(201).json({ id: importId, status: 'queued', type: 'web', message: 'URL queued for parsing' });
   });
 
   // GET /api/bg/sync-status - Get email sync status

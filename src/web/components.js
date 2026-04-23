@@ -44,7 +44,7 @@ function renderAiCatTag(aiCategory) {
 
 function renderSourceBadge(srcType) {
   const name = SOURCE_TYPE_NAMES[srcType] || srcType;
-  return `<span class="source-badge ${srcType}">${name}</span>`;
+  return `<span class="source-badge source-badge-${srcType}">${name}</span>`;
 }
 
 function renderUserRating(p) {
@@ -215,7 +215,8 @@ function renderBgStatus(tasks) {
     metadata: '元数据',
     markdown: 'Markdown',
     summary: 'AI摘要',
-    terminology: '术语'
+    terminology: '术语',
+    urlImport: 'URL解析',
   };
 
   const runningTasks = [];

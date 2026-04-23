@@ -9,6 +9,7 @@ const TASK_NAMES = [
   'layout',
   'summary',
   'terminology',
+  'urlImport',
 ];
 
 const EMAIL_TASK_NAME = 'emailSync';
@@ -76,6 +77,12 @@ if (!isMainThread) {
         case 'terminology': {
           const { TerminologyService } = require('./terminology');
           const svc = new TerminologyService(args);
+          result = await svc.execute();
+          break;
+        }
+        case 'urlImport': {
+          const { UrlImportService } = require('./urlImport');
+          const svc = new UrlImportService(args);
           result = await svc.execute();
           break;
         }
@@ -266,6 +273,9 @@ class TaskManager {
       case 'terminology':
         const { TerminologyService } = require('./terminology');
         return new TerminologyService(args);
+      case 'urlImport':
+        const { UrlImportService } = require('./urlImport');
+        return new UrlImportService(args);
       case 'emailSync':
         const { EmailSyncBackgroundService } = require('./email');
         return new EmailSyncBackgroundService(args);
@@ -369,6 +379,10 @@ class TaskManager {
       console.log(`[TaskManager] Triggering ${taskName}...`);
       this._checkAndRun(taskName);
     }
+  }
+
+  triggerRelatedTasks() {
+    this._triggerRelatedTasks();
   }
 
   async hasPending(task) {

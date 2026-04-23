@@ -315,7 +315,7 @@ const PaperApp = {
     const btn = document.getElementById('importUrlSubmit');
     const res = document.getElementById('importResult');
     btn.disabled = true;
-    btn.textContent = '⏳ AI 提取中...';
+    btn.textContent = '⏳ 排队中...';
     res.style.display = 'none';
 
     try {
@@ -326,20 +326,18 @@ const PaperApp = {
         document.getElementById('importNotes').value.trim()
       );
       if (d.id) {
-        const typeNames = { paper:'论文', wechat_article:'微信文章', blog_post:'博客', video:'视频', other:'链接' };
+        const typeNames = { paper: 'arXiv论文', web: '网页' };
         res.style.display = 'block';
         res.style.background = 'rgba(52,211,153,.07)';
         res.style.borderColor = 'rgba(52,211,153,.3)';
         res.innerHTML = `
-          <div style="color:var(--green);font-weight:600;margin-bottom:6px">导入成功 #${d.id}</div>
-          <div style="margin-bottom:3px"><b>${RenderUtils.esc(d.title)}</b></div>
-          <div style="color:var(--muted);font-size:.78rem;margin-bottom:3px">${typeNames[d.source_type]||d.source_type} · ${RenderUtils.esc(d.category)} · AI ⭐${d.stars}</div>
-          <div style="color:#b8b8c0;font-size:.78rem">${RenderUtils.esc(d.abstract_preview||'')}</div>
+          <div style="color:var(--green);font-weight:600;margin-bottom:6px">✅ ${d.message} #${d.id}</div>
+          <div style="color:var(--muted);font-size:.78rem">${typeNames[d.type] || d.type} · 后台正在处理中</div>
         `;
-        btn.textContent = '已导入，再导入一条';
+        btn.textContent = '已排队，再导入一条';
         btn.disabled = false;
         this.refreshInPlace();
-        this.loadCategories();
+        this.loadBgStatus();
       } else {
         res.style.display = 'block';
         res.style.background = 'rgba(248,113,113,.07)';

@@ -220,10 +220,8 @@ static parseOpenAlexResponse(data, arxivId) {
 
       const title = extract('title').replace(/\s+/g, ' ');
       const summary = extract('summary').replace(/\s+/g, ' ');
-      const authors = extract('author').split('</author>').map(a => {
-        const nameMatch = a.match(/<name>([^<]+)<\/name>/);
-        return nameMatch ? nameMatch[1].trim() : '';
-      }).filter(Boolean).join(', ');
+      const authorMatches = entryContent.matchAll(/<author[^>]*>[\s\S]*?<name>([^<]+)<\/name>[\s\S]*?<\/author>/gi);
+      const authors = Array.from(authorMatches, m => m[1]).filter(Boolean).join(', ');
 
       if (!title || title.startsWith('arXiv Query')) {
         console.debug(`[PaperMetadataFetcher] #${arxivId}: arXiv returned invalid title="${title}"`);
@@ -301,6 +299,16 @@ class MetadataFetchService extends BackgroundService {
             UPDATE papers SET title = ?, authors = ?, abstract = ?, source = ?, source_url = ?, arxiv_version = ?
             WHERE id = ?
           `, [metadata.title, metadata.authors, metadata.abstract, metadata.source, metadata.source_url, metadata.arxiv_version, paper.id]);
+
+          const authorList = metadata.authors ? metadata.authors.split(',').map(a => a.trim()).filter(Boolean) : [];
+          if (authorList.length > 0) {
+            db.run('DELETE FROM paper_authors WHERE paper_id = ?', [paper.id]);
+            authorList.forEach((name, idx) => {
+              db.run('INSERT INTO paper_authors (paper_id, author_name, author_order) VALUES (?, ?, ?)', [paper.id, name, idx]);
+            });
+            console.debug(`[MetadataFetchService] Saved ${authorList.length} authors for paper #${paper.id}`);
+          }
+
           console.debug(`[MetadataFetchService] Updated paper #${paper.id} in database (version: ${metadata.arxiv_version})`);
           this.status.processed++;
         } else {

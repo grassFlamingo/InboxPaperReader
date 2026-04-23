@@ -63,3 +63,27 @@ CREATE TABLE IF NOT EXISTS bg_task_status (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS url_imports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  url TEXT NOT NULL,
+  status TEXT DEFAULT 'pending',
+  parser TEXT DEFAULT '',
+  html_path TEXT DEFAULT '',
+  parsed_data TEXT DEFAULT '{}',
+  error_message TEXT,
+  paper_id INTEGER,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (paper_id) REFERENCES papers(id)
+);
+
+CREATE TABLE IF NOT EXISTS paper_authors (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  paper_id INTEGER NOT NULL,
+  author_name TEXT NOT NULL,
+  author_order INTEGER DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(paper_id, author_name),
+  FOREIGN KEY (paper_id) REFERENCES papers(id) ON DELETE CASCADE
+);

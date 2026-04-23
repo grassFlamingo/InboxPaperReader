@@ -39,6 +39,15 @@ const WORKER_TASKS = {
           UPDATE papers SET title = ?, authors = ?, abstract = ?, source = ?, source_url = ?
           WHERE id = ?
         `, [metadata.title, metadata.authors, metadata.abstract, metadata.source, metadata.source_url, p.id]);
+
+        const authorList = metadata.authors ? metadata.authors.split(',').map(a => a.trim()).filter(Boolean) : [];
+        if (authorList.length > 0) {
+          db.run('DELETE FROM paper_authors WHERE paper_id = ?', [p.id]);
+          authorList.forEach((name, idx) => {
+            db.run('INSERT INTO paper_authors (paper_id, author_name, author_order) VALUES (?, ?, ?)', [p.id, name, idx]);
+          });
+        }
+
         return { done: 1, msg: metadata.title.substring(0, 40) };
       }
       return { done: 0, msg: null };

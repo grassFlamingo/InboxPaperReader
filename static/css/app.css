@@ -787,32 +787,32 @@ a.paper-preview {
   white-space: nowrap;
 }
 
-.source-badge.paper {
+.source-badge-paper {
   background: rgba(99, 102, 241, 0.12);
   color: var(--accent2);
 }
 
-.source-badge.wechat_article {
+.source-badge-wechat_article {
   background: rgba(7, 193, 96, 0.12);
   color: #07c160;
 }
 
-.source-badge.twitter_thread {
+.source-badge-twitter_thread {
   background: rgba(29, 161, 242, 0.12);
   color: #1da1f2;
 }
 
-.source-badge.blog_post {
+.source-badge-blog_post {
   background: rgba(251, 191, 36, 0.12);
   color: var(--yellow);
 }
 
-.source-badge.video {
+.source-badge-video {
   background: rgba(248, 113, 113, 0.12);
   color: var(--red);
 }
 
-.source-badge.other {
+.source-badge-other {
   background: rgba(139, 141, 151, 0.12);
   color: var(--muted);
 }
