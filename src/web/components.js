@@ -55,7 +55,7 @@ const SOURCE_TYPE_NAMES = {
   blog_post: '博客', video: '视频', other: '链接'
 };
 
-const STATUS_ORDER = { reading: 0, unread: 1, done: 2 };
+const STATUS_ORDER = { reading: 0, done: 1, unread: 2 };
 const STATUS_NEXT = { unread: 'reading', reading: 'done', done: 'unread' };
 const STATUS_LABELS = { unread: '标记阅读中', reading: '标记已读', done: '重置未读' };
 const STATUS_ICONS = { done: '✅', reading: '📖', unread: '' };

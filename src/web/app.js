@@ -309,12 +309,13 @@ const PaperApp = {
     };
     const editId = document.getElementById('editId').value;
     if (editId) {
-      await PaperAPI.updatePaper(editId, data);
+      const updated = await PaperAPI.updatePaper(editId, data);
+      this._updatePaperCard(updated);
     } else {
       await PaperAPI.addPaper(data);
+      this.refreshInPlace();
     }
     this.closeModal();
-    this.refreshInPlace();
     this.loadCategories();
   },
 
