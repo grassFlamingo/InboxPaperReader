@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS papers (
   source_url TEXT DEFAULT '',
   arxiv_id TEXT DEFAULT '',
   arxiv_version TEXT DEFAULT NULL,
+  openreview_id TEXT DEFAULT NULL,
   category TEXT DEFAULT '其他',
   priority INTEGER DEFAULT 3,
   status TEXT DEFAULT 'unread',

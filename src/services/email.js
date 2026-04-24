@@ -50,21 +50,44 @@ class EmailParser {
     return results;
   }
 
-  static async parse(stream) {
+static async parse(stream) {
     try {
       const parsed = await simpleParser(stream);
       if (!parsed) return null;
       return {
         arxivIds: this.extractArxivIds(parsed.html || '', parsed.text || ''),
+        openreviewIds: this.extractOpenreviewIds(parsed.html || '', parsed.text || ''),
         htmlBody: parsed.html || '',
         textBody: parsed.text || '',
         subject: parsed.subject || '',
         from: parsed.from?.text || '',
       };
     } catch (e) {
-      console.error('[EmailParser] Parse error:', e.message);
+      console.error('[EmailParser] parse error:', e.message);
       return null;
     }
+  }
+
+  static extractOpenreviewIds(html = '', text = '') {
+    const results = [];
+    const seen = new Set();
+    const patterns = [
+      /openreview\.net\/forum\?id=([A-Za-z0-9_-]+)/gi,
+      /openreview\.net\/pdf\?id=([A-Za-z0-9_-]+)/gi,
+    ];
+
+    const content = html + ' ' + text;
+    for (const pattern of patterns) {
+      let match;
+      while ((match = pattern.exec(content)) !== null) {
+        const id = match[1];
+        if (id && id.length >= 6 && !seen.has(id)) {
+          seen.add(id);
+          results.push(id);
+        }
+      }
+    }
+    return results;
   }
 }
 
@@ -253,6 +276,18 @@ class EmailSyncService {
 
       console.log(`[EmailSync] Found ${allArxivIds.length} unique arXiv IDs`);
 
+      const allOpenreviewIds = [];
+      const orSeen = new Set();
+      for (const email of emails) {
+        for (const id of (email.openreviewIds || [])) {
+          if (!orSeen.has(id)) {
+            orSeen.add(id);
+            allOpenreviewIds.push(id);
+          }
+        }
+      }
+      console.log(`[EmailSync] Found ${allOpenreviewIds.length} unique OpenReview IDs`);
+
       for (const item of allArxivIds) {
         const existing = db.queryOne(
           'SELECT id FROM papers WHERE arxiv_id = ? AND (arxiv_version = ? OR (arxiv_version IS NULL AND ? IS NULL))',
@@ -266,6 +301,23 @@ class EmailSyncService {
           INSERT INTO papers (arxiv_id, arxiv_version, priority, status, source_type, title)
           VALUES (?, ?, ?, ?, ?, ?)
         `, [item.arxiv_id, item.arxiv_version, 3, 'unread', 'paper', `arXiv:${item.arxiv_id}${item.arxiv_version || ''}`]);
+
+        syncStatus.papersImported++;
+      }
+
+      for (const openreviewId of allOpenreviewIds) {
+        const existing = db.queryOne(
+          'SELECT id FROM papers WHERE openreview_id = ?',
+          [openreviewId]
+        );
+        if (existing) {
+          continue;
+        }
+
+        db.runQuery(`
+          INSERT INTO papers (openreview_id, priority, status, source_type, title, source_url)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [openreviewId, 3, 'unread', 'paper', `OpenReview:${openreviewId}`, `https://openreview.net/pdf?id=${openreviewId}`]);
 
         syncStatus.papersImported++;
       }

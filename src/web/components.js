@@ -45,6 +45,7 @@ async function typesetMathJax(elementOrSelector) {
 
 function paperUrl(p) {
   if (p.cached_file_path && p.cached_file_path.length > 10) return `/api/papers/${p.id}/file`;
+  if (p.openreview_id) return `https://openreview.net/pdf?id=${p.openreview_id}`;
   if (p.arxiv_id) return `https://arxiv.org/pdf/${p.arxiv_id}`;
   return p.source_url || '#';
 }
@@ -190,6 +191,7 @@ const previewImg = hasPreview ? `<img src="${previewSrc}" alt="preview"${cropSty
         ${p.arxiv_id ? `<span class="id">${esc(p.arxiv_id)}${p.arxiv_version ? `<span class="arxiv-version">${esc(p.arxiv_version)}</span>` : ''}</span>` : ''}
         ${p.source ? `<span>${esc(p.source)}</span>` : ''}
         ${p.authors ? `<span>${esc(p.authors)}</span>` : ''}
+        ${p.openreview_id ? `<span class="id openreview-id">${esc(p.openreview_id)}</span>` : ''}
       </div>
       ${p.abstract ? `<div class="paper-abstract">${esc(p.abstract)}</div>` : ''}
       ${renderAiSummary(p)}

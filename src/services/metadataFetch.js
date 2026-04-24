@@ -7,38 +7,69 @@ const ARXIV_API = 'https://export.arxiv.org/api/query';
 const SEMANTIC_API = 'https://api.semanticscholar.org/graph/v1/paper/arxiv:';
 const OPENALEX_API = 'https://api.openalex.org/works/doi:10.48550/arXiv.';
 const OPENALEX_KEY = config.OPENALEX_ORG?.API || '';
+const OPENREVIEW_API = 'https://api2.openreview.net/notes';
 const USER_AGENT = config.CACHE?.USER_AGENT || 'Mozilla/5.0 (compatible; paperReader/1.0)';
 
 const ARXIV_ID_REGEX = /^\d{4}\.\d{4,5}(v\d+)?$/;
+const OPENREVIEW_ID_REGEX = /^[A-Za-z0-9_-]+$/;
 
 class PaperMetadataFetcher {
   static isValidArxivId(arxivId) {
     return ARXIV_ID_REGEX.test(arxivId);
   }
 
-  static async fetch(arxivId, retries = 3) {
-    if (!arxivId) return null;
+  static isValidOpenReviewId(id) {
+    return OPENREVIEW_ID_REGEX.test(id) && id.length >= 6;
+  }
 
-    if (!this.isValidArxivId(arxivId)) {
-      console.debug(`[PaperMetadataFetcher] #${arxivId}: invalid arxiv_id format, skipping`);
+  static async fetch(idOrOpts, retries = 3) {
+    if (!idOrOpts) return null;
+
+    let source = 'arxiv';
+    let id = idOrOpts;
+
+    if (typeof idOrOpts === 'object' && idOrOpts !== null) {
+      source = idOrOpts.source || 'arxiv';
+      id = idOrOpts.id;
+    } else if (/[A-Za-z_-]/.test(idOrOpts) && !/^\d{4}\./.test(idOrOpts)) {
+      source = 'openreview';
+    }
+
+    if (!id) return null;
+
+    if (source === 'openreview') {
+      if (!this.isValidOpenReviewId(id)) {
+        console.debug(`[PaperMetadataFetcher] #${id}: invalid openreview_id format, skipping`);
+        return null;
+      }
+      const orResult = await this.fetchFromOpenReview(id, retries);
+      if (orResult) {
+        console.debug(`[PaperMetadataFetcher] #${id}: got from OpenReview API`);
+        return orResult;
+      }
       return null;
     }
 
-    const arxivResult = await this.fetchFromArxivApi(arxivId, retries);
+    if (!this.isValidArxivId(id)) {
+      console.debug(`[PaperMetadataFetcher] #${id}: invalid arxiv_id format, skipping`);
+      return null;
+    }
+
+    const arxivResult = await this.fetchFromArxivApi(id, retries);
     if (arxivResult) {
-      console.debug(`[PaperMetadataFetcher] #${arxivId}: got from arXiv API`);
+      console.debug(`[PaperMetadataFetcher] #${id}: got from arXiv API`);
       return arxivResult;
     }
 
-    const ssResult = await this.fetchFromSemanticScholar(arxivId, retries);
+    const ssResult = await this.fetchFromSemanticScholar(id, retries);
     if (ssResult) {
-      console.debug(`[PaperMetadataFetcher] #${arxivId}: got from Semantic Scholar`);
+      console.debug(`[PaperMetadataFetcher] #${id}: got from Semantic Scholar`);
       return ssResult;
     }
 
-    const openalexResult = await this.fetchFromOpenAlex(arxivId, retries);
+    const openalexResult = await this.fetchFromOpenAlex(id, retries);
     if (openalexResult) {
-      console.debug(`[PaperMetadataFetcher] #${arxivId}: got from OpenAlex`);
+      console.debug(`[PaperMetadataFetcher] #${id}: got from OpenAlex`);
       return openalexResult;
     }
 
@@ -252,6 +283,73 @@ static parseOpenAlexResponse(data, arxivId) {
       return null;
     }
   }
+
+  static async fetchFromOpenReview(openreviewId, retries = 3) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const url = `${OPENREVIEW_API}?id=${encodeURIComponent(openreviewId)}&select=id,content.title,content.authors,content.abstract,content.pdf,content.venue,content.venueid,content.authorids&details=all`;
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 30000);
+
+        const response = await fetch(url, {
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json',
+            'User-Agent': USER_AGENT
+          }
+        });
+        clearTimeout(timeout);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        return this.parseOpenReviewResponse(data, openreviewId);
+      } catch (e) {
+        console.warn(`[PaperMetadataFetcher] OpenReview attempt ${attempt} failed for ${openreviewId}: ${e.message}`);
+        if (attempt < retries) await new Promise(r => setTimeout(r, 10000));
+      }
+    }
+    return null;
+  }
+
+  static parseOpenReviewResponse(data, openreviewId) {
+    if (!data || !data.notes || data.notes.length === 0) {
+      console.debug(`[PaperMetadataFetcher] #${openreviewId}: no note returned from OpenReview`);
+      return null;
+    }
+
+    const note = data.notes[0];
+    const content = note.content || {};
+
+    const title = content.title?.value || '';
+    const abstract = content.abstract?.value || '';
+    const venue = content.venue?.value || 'OpenReview';
+    const authorids = content.authorids?.value || [];
+    const authorNames = content.authors?.value || [];
+
+    let authors = '';
+    if (Array.isArray(authorNames) && authorNames.length > 0) {
+      authors = authorNames.map(a => typeof a === 'string' ? a : a.name || '').filter(Boolean).join(', ');
+    }
+    if (!authors && Array.isArray(authorids) && authorids.length > 0) {
+      authors = authorids.join(', ');
+    }
+
+    const sourceUrl = `https://openreview.net/forum?id=${openreviewId}`;
+    const pdfUrl = content.pdf?.value ? `https://openreview.net/pdf?id=${openreviewId}` : sourceUrl;
+
+    return {
+      title,
+      authors,
+      abstract,
+      source: venue,
+      source_url: sourceUrl,
+      openreview_id: openreviewId,
+      pdf_url: pdfUrl,
+    };
+  }
 }
 
 class MetadataFetchService extends BackgroundService {
@@ -265,19 +363,27 @@ class MetadataFetchService extends BackgroundService {
   }
 
   async hasPending() {
-    const papers = db.queryAll(`
+    const arxivPapers = db.queryAll(`
       SELECT id FROM papers WHERE arxiv_id IS NOT NULL AND arxiv_id != ''
       AND (abstract IS NULL OR abstract = '' OR title LIKE 'arXiv:%' OR title LIKE 'arXiv Query:%')
       AND arxiv_id NOT LIKE 'arXiv Query:%'
       AND arxiv_id NOT LIKE '%&%'
       LIMIT 1
     `);
-    return papers.length > 0;
+    if (arxivPapers.length > 0) return true;
+
+    const orPapers = db.queryAll(`
+      SELECT id FROM papers WHERE openreview_id IS NOT NULL AND openreview_id != ''
+      AND (abstract IS NULL OR abstract = '' OR title = '' OR source_url LIKE '%openreview.net%')
+      LIMIT 1
+    `);
+    return orPapers.length > 0;
   }
 
   async execute() {
     console.debug('[MetadataFetchService] Starting metadata fetch...');
-    const papers = db.queryAll(`
+
+    const arxivPapers = db.queryAll(`
       SELECT * FROM papers WHERE arxiv_id IS NOT NULL AND arxiv_id != ''
       AND arxiv_id NOT LIKE 'arXiv Query:%'
       AND arxiv_id NOT LIKE '%&%'
@@ -285,11 +391,13 @@ class MetadataFetchService extends BackgroundService {
       ORDER BY id DESC
     `);
 
-    const validPapers = papers.filter(p => PaperMetadataFetcher.isValidArxivId(p.arxiv_id));
+    const orPapers = db.queryAll(`
+      SELECT * FROM papers WHERE openreview_id IS NOT NULL AND openreview_id != ''
+      AND (abstract IS NULL OR abstract = '' OR title = '' OR source_url LIKE '%openreview.net%')
+      ORDER BY id DESC
+    `);
 
-    console.debug(`[MetadataFetchService] Found ${papers.length} papers needing metadata:`, papers.map(p => ({ id: p.id, arxiv_id: p.arxiv_id, title: p.title })));
-
-    for (const paper of papers) {
+    for (const paper of arxivPapers) {
       try {
         console.debug(`[MetadataFetchService] Fetching metadata for paper #${paper.id} (${paper.arxiv_id})...`);
         const metadata = await PaperMetadataFetcher.fetch(paper.arxiv_id);
@@ -310,6 +418,39 @@ class MetadataFetchService extends BackgroundService {
           }
 
           console.debug(`[MetadataFetchService] Updated paper #${paper.id} in database (version: ${metadata.arxiv_version})`);
+          this.status.processed++;
+        } else {
+          console.debug(`[MetadataFetchService] No metadata found for #${paper.id}`);
+        }
+      } catch (e) {
+        this.status.errors++;
+        console.error(`[MetadataFetchService] Error #${paper.id}:`, e.message);
+      }
+      await this.yieldIfNeeded();
+      await this._setTimeout(2000);
+    }
+
+    for (const paper of orPapers) {
+      try {
+        console.debug(`[MetadataFetchService] Fetching metadata for paper #${paper.id} (openreview: ${paper.openreview_id})...`);
+        const metadata = await PaperMetadataFetcher.fetch({ source: 'openreview', id: paper.openreview_id });
+        if (metadata) {
+          console.debug(`[MetadataFetchService] Got metadata for #${paper.id}: title="${metadata.title}", authors="${metadata.authors?.substring(0, 50)}..."`);
+          db.runQuery(`
+            UPDATE papers SET title = ?, authors = ?, abstract = ?, source = ?, source_url = ?
+            WHERE id = ?
+          `, [metadata.title, metadata.authors, metadata.abstract, metadata.source, metadata.source_url, paper.id]);
+
+          const authorList = metadata.authors ? metadata.authors.split(',').map(a => a.trim()).filter(Boolean) : [];
+          if (authorList.length > 0) {
+            db.run('DELETE FROM paper_authors WHERE paper_id = ?', [paper.id]);
+            authorList.forEach((name, idx) => {
+              db.run('INSERT INTO paper_authors (paper_id, author_name, author_order) VALUES (?, ?, ?)', [paper.id, name, idx]);
+            });
+            console.debug(`[MetadataFetchService] Saved ${authorList.length} authors for paper #${paper.id}`);
+          }
+
+          console.debug(`[MetadataFetchService] Updated paper #${paper.id} in database`);
           this.status.processed++;
         } else {
           console.debug(`[MetadataFetchService] No metadata found for #${paper.id}`);

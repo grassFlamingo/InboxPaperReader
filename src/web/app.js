@@ -277,6 +277,7 @@ const PaperApp = {
     document.getElementById('fAuthors').value = p.authors || '';
     document.getElementById('fUrl').value = p.source_url || '';
     document.getElementById('fArxivId').value = p.arxiv_id || '';
+    document.getElementById('fOpenreviewId').value = p.openreview_id || '';
     document.getElementById('fCategory').value = p.category || '';
     document.getElementById('fPriority').value = p.priority || 3;
     document.getElementById('fTags').value = p.tags || '';
@@ -300,6 +301,7 @@ const PaperApp = {
       source: document.getElementById('fSource').value,
       source_url: document.getElementById('fUrl').value.trim(),
       arxiv_id: document.getElementById('fArxivId').value.trim(),
+      openreview_id: document.getElementById('fOpenreviewId').value.trim(),
       category: document.getElementById('fCategory').value.trim() || '其他',
       priority: parseInt(document.getElementById('fPriority').value) || 3,
       tags: document.getElementById('fTags').value.trim(),

@@ -96,9 +96,9 @@ const papers = rows.map(row => {
   app.post('/api/papers', (req, res) => {
     const d = req.body;
     const lastId = db.runQuery(`
-      INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, arxiv_version, category, priority, status, tags, notes, source_type)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [d.title || '', d.authors || '', d.abstract || '', d.source || '', d.source_url || '', d.arxiv_id || '', d.arxiv_version || null, d.category || '其他', d.priority ?? 3, d.status || 'unread', d.tags || '', d.notes || '', d.source_type || 'paper']);
+      INSERT INTO papers (title, authors, abstract, source, source_url, arxiv_id, arxiv_version, openreview_id, category, priority, status, tags, notes, source_type)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [d.title || '', d.authors || '', d.abstract || '', d.source || '', d.source_url || '', d.arxiv_id || '', d.arxiv_version || null, d.openreview_id || null, d.category || '其他', d.priority ?? 3, d.status || 'unread', d.tags || '', d.notes || '', d.source_type || 'paper']);
     res.status(201).json({ id: lastId, message: 'added' });
   });
 
@@ -117,7 +117,7 @@ const papers = rows.map(row => {
   // PUT /api/papers/:id - Update paper
   app.put('/api/papers/:id', (req, res) => {
     const { id } = req.params;
-    const fields = ['title', 'authors', 'abstract', 'source', 'source_url', 'arxiv_id', 'arxiv_version', 'category', 'priority', 'status', 'tags', 'notes', 'ai_category', 'stars', 'user_rating', 'source_type'];
+    const fields = ['title', 'authors', 'abstract', 'source', 'source_url', 'arxiv_id', 'arxiv_version', 'openreview_id', 'category', 'priority', 'status', 'tags', 'notes', 'ai_category', 'stars', 'user_rating', 'source_type'];
     const sets = [], vals = [];
     for (const f of fields) {
       if (f in req.body) { sets.push(`${f} = ?`); vals.push(req.body[f]); }
@@ -177,6 +177,26 @@ const papers = rows.map(row => {
     if (!url || !url.trim()) return res.status(400).json({ error: 'url is required' });
 
     const taskManager = require('../services/taskManager');
+
+    const openreviewMatch = url.match(/openreview\.net\/(?:pdf|forum)\?id=([A-Za-z0-9_-]+)/);
+
+    if (openreviewMatch) {
+      const openreviewId = openreviewMatch[1];
+
+      const existing = db.queryOne('SELECT id, openreview_id FROM papers WHERE openreview_id = ?', [openreviewId]);
+      if (existing) {
+        return res.status(409).json({ error: 'Paper already imported', id: existing.id });
+      }
+
+      const id = db.runQuery(`
+        INSERT INTO papers (title, source_url, openreview_id, source_type, category, priority, tags, notes, status)
+        VALUES (?, ?, ?, 'paper', ?, ?, ?, ?, 'unread')
+      `, [url, url, openreviewId, category || '其他', priority ?? 3, tags || '', notes || '']);
+
+      setTimeout(() => taskManager.triggerRelatedTasks(), 1000);
+
+      return res.status(201).json({ id, status: 'queued', type: 'paper', message: 'OpenReview paper queued for processing' });
+    }
 
     const arxivMatch = url.match(/arxiv\.(?:org|com)\/(?:abs|pdf)\/(\d{4}\.\d{4,5}(?:v\d+)?)/);
 
